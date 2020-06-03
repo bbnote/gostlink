@@ -11,7 +11,12 @@ import (
 func main() {
 
 	log.Info("Starting usb stlink test-software...")
+	var v gostlink.Stlink_usb_version
 
-	gostlink.OpenStLink(gostlink.STLINK_MODE_DEBUG_SWD)
+	handle, err := gostlink.OpenStLink(gostlink.STLINK_MODE_DEBUG_SWD)
+
+	if err == nil {
+		gostlink.GetUsbVersion(handle, &v)
+	}
 
 }
