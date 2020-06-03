@@ -10,7 +10,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const MaxLogLevel = logrus.TraceLevel
+const MaxLogLevel = logrus.DebugLevel
 
 func init() {
 	logrus.SetOutput(os.Stdout)

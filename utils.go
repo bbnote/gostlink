@@ -4,7 +4,9 @@
 
 package gostlink
 
-func itemExists(slice []uint16, item uint16) bool {
+import "github.com/google/gousb"
+
+func idExists(slice []gousb.ID, item gousb.ID) bool {
 	for _, element := range slice {
 		if element == item {
 			return true
@@ -35,6 +37,23 @@ func buf_set_u32(buffer []uint8, first uint, num uint, value uint32) {
 				buffer[i/8] &= ^(1 << (i % 8))
 			}
 		}
+	}
+}
+
+func buf_get_u32(buffer []byte, first uint, num uint) uint32 {
+	if (num == 32) && (first == 0) {
+		return ((uint32(buffer[3]) << 24) |
+			(uint32(buffer[2]) << 16) |
+			(uint32(buffer[1]) << 8) |
+			(uint32(buffer[0]) << 0))
+	} else {
+		var result uint32 = 0
+		for i := first; i < first+num; i++ {
+			if ((buffer[i/8] >> (i % 8)) & 1) == 1 {
+				result |= uint32(1) << (i - first)
+			}
+		}
+		return result
 	}
 }
 

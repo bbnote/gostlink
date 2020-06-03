@@ -1,6 +1,9 @@
 // Copyright 2020 Sebastian Lehmann. All rights reserved.
 // Use of this source code is governed by a GNU-style
 // license that can be found in the LICENSE file.
+
+// based on https://github.com/phryniszak/strtt
+
 package gostlink
 
 const (

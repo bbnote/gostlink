@@ -14,65 +14,69 @@ import (
 
 var usb_ctx *gousb.Context = nil
 
-func usb_init() {
-	usb_ctx = gousb.NewContext()
-	usb_ctx.Debug(2)
+func InitializeUSB() error {
+	if usb_ctx == nil {
+		usb_ctx = gousb.NewContext()
+		usb_ctx.Debug(2)
 
-	if usb_ctx != nil {
-		log.Debug("Initialized libsusb...")
+		if usb_ctx != nil {
+			log.Debug("Initialized libsusb...")
+			return nil
+		} else {
+			return errors.New("Could not initialize libusb!")
+		}
 	} else {
-		log.Panic("Could not initialize libusb")
+		log.Warn("USB already initialized!")
+		return nil
 	}
 }
 
-func usb_open_device(vids []uint16, pids []uint16, serial_no string) (*gousb.Device, error) {
-	var found_stlinks int = 0
+func CloseUSB() {
+	if usb_ctx != nil {
+		usb_ctx.Close()
+	} else {
+		log.Warn("Could not close uninitialized usb context")
+	}
+}
 
-	devices, _ := usb_ctx.OpenDevices(func(desc *gousb.DeviceDesc) bool {
-		if itemExists(vids, uint16(desc.Vendor)) == true {
-			log.Infof("Found ST-Link on bus %d with address %d", desc.Bus, desc.Address)
-			found_stlinks++
+func usb_find_devices(vids []gousb.ID, pids []gousb.ID) ([]*gousb.Device, error) {
+	devices, err := usb_ctx.OpenDevices(func(desc *gousb.DeviceDesc) bool {
+		if idExists(vids, desc.Vendor) == true {
+			log.Infof("Found USB device [%04x:%04x] on bus %03d:%03d", uint16(desc.Vendor), uint16(desc.Product), desc.Bus, desc.Address)
 
 			return true
 		} else {
 			return false
 		}
-
 	})
 
-	log.Infof("Found %d stlinks (%d)...", len(devices), found_stlinks)
-
-	if found_stlinks == 1 {
-		return devices[0], nil
+	if err == nil {
+		log.Infof("Found %d matching devices based on vendor and product id list", len(devices))
+		return devices, nil
 	} else {
-		return nil, errors.New("gostlink supports just one ST-Link at the moment")
+		log.Error("Got error during usb device scan", err)
+		return nil, err
 	}
 }
 
-func usb_write(endpoint *gousb.OutEndpoint, buffer []byte) int {
+func usb_write(endpoint *gousb.OutEndpoint, buffer []byte) (int, error) {
 	b_written, err := endpoint.Write(buffer)
 
 	if err != nil {
-		log.Error("Could not write to usb endpoint", err)
-		return 0
+		return -1, err
 	} else {
-		log.Debugf("Wrote %d bytes to endpoint %d", b_written)
-		return b_written
+		log.Tracef("Wrote %d bytes to endpoint", b_written)
+		return b_written, nil
 	}
 }
 
-func usb_read(endpoint *gousb.InEndpoint, buffer []byte) int {
+func usb_read(endpoint *gousb.InEndpoint, buffer []byte) (int, error) {
 	b_read, err := endpoint.Read(buffer)
 
 	if err != nil {
-		log.Error("Could not read bytes from endpoint")
-		return 0
+		return -1, err
 	} else {
-		log.Debugf("Read %d byte from in endpoint %d", b_read, endpoint.Number)
-		return b_read
+		log.Tracef("Read %d byte from in endpoint", b_read)
+		return b_read, nil
 	}
-}
-
-func usb_close() {
-	usb_ctx.Close()
 }

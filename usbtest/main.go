@@ -1,6 +1,7 @@
 // Copyright 2020 Sebastian Lehmann. All rights reserved.
 // Use of this source code is governed by a GNU-style
 // license that can be found in the LICENSE file.
+
 package main
 
 import (
@@ -9,14 +10,22 @@ import (
 )
 
 func main() {
-
 	log.Info("Starting usb stlink test-software...")
-	var v gostlink.Stlink_usb_version
 
-	handle, err := gostlink.OpenStLink(gostlink.STLINK_MODE_DEBUG_SWD)
+	err := gostlink.InitializeUSB()
 
-	if err == nil {
-		gostlink.GetUsbVersion(handle, &v)
+	if err != nil {
+		log.Panic(err)
 	}
 
+	stlink, err := gostlink.NewStLink(gostlink.STLINK_ALL_VIDS, gostlink.STLINK_ALL_PIDS, "", gostlink.STLINK_MODE_DEBUG_SWD)
+
+	if stlink != nil {
+		log.Info("Found ST-Link on your computer! :)")
+	} else {
+		log.Error("Could not find any st-link on your computer")
+	}
+
+	stlink.Close()
+	gostlink.CloseUSB()
 }

@@ -1,9 +1,18 @@
 // Copyright 2020 Sebastian Lehmann. All rights reserved.
 // Use of this source code is governed by a GNU-style
 // license that can be found in the LICENSE file.
+
+// this code is mainly inspired and based on the openocd project source code
+// for detailed information see
+
+// https://sourceforge.net/p/openocd/code
+
 package gostlink
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/google/gousb"
 	log "github.com/sirupsen/logrus"
 )
@@ -16,14 +25,11 @@ const (
 	STLINK_SERIAL_LEN  = 24
 )
 
-const HLA_MAX_USB_IDS = 8
+const STLINK_ALL_VIDS = 0xFFFF
+const STLINK_ALL_PIDS = 0xFFFF
 
-var STLINK_SUPPORTED_VIDS = []uint16{0x0483} // STLINK Vendor ID
-var STLINK_SUPPORTED_PIDS = []uint16{0x3744, 0x3748, 0x374b, 0x374d, 0x374e, 0x374f, 0x3752, 0x3753}
-
-const STLINK_DEVICE_DESCRIPTION = "ST-Link"
-const STLINK_DEVICE_SERIAL = ""
-const STLINK_DEVICE_TRANSPORT = STLINK_MODE_DEBUG_SWD
+var stlink_supported_vids = []gousb.ID{0x0483} // STLINK Vendor ID
+var stlink_supported_pids = []gousb.ID{0x3744, 0x3748, 0x374b, 0x374d, 0x374e, 0x374f, 0x3752, 0x3753}
 
 type StLinkMode uint8
 
@@ -79,7 +85,34 @@ const (
 	STLINK_GET_TARGET_VOLTAGE = 0xF7
 )
 
-type Stlink_usb_version struct {
+const (
+	STLINK_DEBUG_PORT_ACCESS = 0xffff
+
+	STLINK_TRACE_SIZE   = 4096
+	STLINK_TRACE_MAX_HZ = 2000000
+
+	STLINK_V3_MAX_FREQ_NB       = 10
+	STLINK_APIV3_GET_VERSION_EX = 0xFB
+
+	REQUEST_SENSE        = 0x03
+	REQUEST_SENSE_LENGTH = 18
+)
+
+const (
+	STLINK_F_HAS_TRACE            = 0x01
+	STLINK_F_HAS_SWD_SET_FREQ     = 0x02
+	STLINK_F_HAS_JTAG_SET_FREQ    = 0x04
+	STLINK_F_HAS_MEM_16BIT        = 0x08
+	STLINK_F_HAS_GETLASTRWSTATUS2 = 0x10
+	STLINK_F_HAS_DAP_REG          = 0x20
+	STLINK_F_QUIRK_JTAG_DP_READ   = 0x40
+	STLINK_F_HAS_AP_INIT          = 0x80
+	STLINK_F_HAS_DPBANKSEL        = 0x100
+	STLINK_F_HAS_RW8_512BYTES     = 0x200
+	STLINK_F_FIX_CLOSE_AP         = 0x400
+)
+
+type StLinkVersion struct {
 	/** */
 	stlink int
 	/** */
@@ -93,21 +126,13 @@ type Stlink_usb_version struct {
 }
 
 /** */
-type trace struct {
-	/** whether SWO tracing is enabled or not */
-	enabled bool
-	/** trace module source clock */
-	source_hz uint32
-}
-
-/** */
-type stlink_usb_handle struct {
+type StLinkHandle struct {
 	/** */
-	libusb_device *gousb.Device
+	usb_device *gousb.Device
 	/** */
-	libusb_config *gousb.Config
+	usb_config *gousb.Config
 	/** */
-	libusb_interface *gousb.Interface
+	usb_interface *gousb.Interface
 	/** */
 	rx_ep uint8
 	/** */
@@ -115,60 +140,97 @@ type stlink_usb_handle struct {
 	/** */
 	trace_ep uint8
 	/** */
-	cmdbuf []uint8
+	cmdbuf []byte
 	/** */
 	cmdidx uint8
 	/** */
 	direction uint8
 	/** */
-	databuf []uint8
+	databuf []byte
 	/** */
 	max_mem_packet uint32
 	/** */
 	st_mode StLinkMode
 	/** */
-	version Stlink_usb_version
+	version StLinkVersion
 
 	/** */
-	vid uint16
+	vid gousb.ID
 	/** */
-	pid uint16
+	pid gousb.ID
 	/** reconnect is needed next time we try to query the
 	 * status */
 	reconnect_pending bool
 }
 
-func OpenStLink(mode StLinkMode) (*stlink_usb_handle, error) {
-	log.Debug("stlink_usb_open")
-
+func NewStLink(vid gousb.ID, pid gousb.ID, serial_no string, mode StLinkMode) (*StLinkHandle, error) {
 	var err error
+	var devices []*gousb.Device
 
-	handle := &stlink_usb_handle{}
+	handle := &StLinkHandle{}
 	handle.st_mode = mode
 
-	usb_init()
+	if vid == STLINK_ALL_VIDS && pid == STLINK_ALL_PIDS {
+		devices, err = usb_find_devices(stlink_supported_vids, stlink_supported_pids)
 
-	handle.libusb_device, err = usb_open_device(STLINK_SUPPORTED_VIDS, STLINK_SUPPORTED_PIDS, "")
+	} else if vid == STLINK_ALL_VIDS && pid != STLINK_ALL_PIDS {
+		devices, err = usb_find_devices(stlink_supported_vids, []gousb.ID{pid})
 
-	if err != nil {
-		log.Fatal("Could not find any st link connected to computer.")
+	} else if vid != STLINK_ALL_VIDS && pid == STLINK_ALL_PIDS {
+		devices, err = usb_find_devices([]gousb.ID{vid}, stlink_supported_pids)
+
+	} else {
+		devices, err = usb_find_devices([]gousb.ID{vid}, []gousb.ID{pid})
 	}
 
-	handle.libusb_config, err = handle.libusb_device.Config(1) // request for configuration #0
-
 	if err != nil {
-		log.Fatal("Could not request configuration #0 for st-link debugger.", err)
+		return nil, err
 	}
 
-	handle.libusb_interface, err = handle.libusb_config.Interface(0, 0)
+	if len(devices) > 0 {
 
-	if err != nil {
-		log.Fatal("Could not claim interface 0,0 for st-link debugger.")
+		if serial_no == "" && len(devices) > 1 {
+			return nil, errors.New("Could not idendify exact stlink by given paramters. (Perhaps a serial no is missing?)")
+		} else if len(devices) == 1 {
+			handle.usb_device = devices[0]
+		} else {
+			for _, dev := range devices {
+				dev_serial_no, _ := dev.SerialNumber()
+
+				log.Debugf("Compare serial no %s with number %s", dev_serial_no, serial_no)
+
+				if dev_serial_no == serial_no {
+					handle.usb_device = dev
+
+					log.Infof("Found st link with serial number %s", dev_serial_no)
+				}
+			}
+		}
+	} else {
+		return nil, errors.New("Could not find any ST-Link connected to computer.")
 	}
 
-	handle.rx_ep = STLINK_RX_EP
+	if handle.usb_device == nil {
+		return nil, errors.New("Could not find ST-Link by given paramters")
+	}
 
-	switch handle.libusb_device.Desc.Product {
+	// no request required configuration an matching usb interface :D
+
+	handle.usb_config, err = handle.usb_device.Config(1)
+	if err != nil {
+		log.Debug(err)
+		return nil, errors.New("Could not request configuration #0 for st-link debugger.")
+	}
+
+	handle.usb_interface, err = handle.usb_config.Interface(0, 0)
+	if err != nil {
+		log.Debug(err)
+		return nil, errors.New("Could not claim interface 0,0 for st-link debugger.")
+	}
+
+	handle.rx_ep = STLINK_RX_EP // Endpoint for rx is on all st links the same
+
+	switch handle.usb_device.Desc.Product {
 	case STLINK_V1_PID:
 		handle.version.stlink = 1
 		handle.tx_ep = STLINK_TX_EP
@@ -177,78 +239,240 @@ func OpenStLink(mode StLinkMode) (*stlink_usb_handle, error) {
 		handle.version.stlink = 3
 		handle.tx_ep = STLINK_V2_1_TX_EP
 		handle.trace_ep = STLINK_V2_1_TRACE_EP
+
 	case STLINK_V2_1_PID, STLINK_V2_1_NO_MSD_PID:
 		handle.version.stlink = 2
 		handle.tx_ep = STLINK_V2_1_TX_EP
 		handle.trace_ep = STLINK_V2_1_TRACE_EP
 
 	default:
-		log.Infof("Could not determine pid of debugger %04x", handle.libusb_device.Desc.Product)
+		log.Infof("Could not determine pid of debugger %04x. Assuming Link V2", handle.usb_device.Desc.Product)
 		handle.version.stlink = 2
 		handle.tx_ep = STLINK_TX_EP
 		handle.trace_ep = STLINK_TRACE_EP
 	}
 
-	log.Debugf("V: %d, TXEP: %02x RXEP: %02x, TEP: %02x", handle.version.stlink, handle.tx_ep, handle.rx_ep, handle.trace_ep)
+	// initialize data buffers for tx and rx
+	handle.cmdbuf = make([]byte, STLINK_SG_SIZE)
+	handle.databuf = make([]byte, STLINK_DATA_SIZE)
+
+	handle.stlink_version()
 
 	return handle, nil
 }
 
-func GetUsbVersion(h *stlink_usb_handle, usb_ver *Stlink_usb_version) bool {
-	/*var res int
-	var flags uint32
-	*/
-	var v, x, y uint8 = 0, 0, 0
-	/*	var v_str [5*(1+3) + 1]uint8 VvJjMmBbSs
+func (h *StLinkHandle) stlink_version() error {
+	var v, x, y, jtag, swim, msd, bridge byte = 0, 0, 0, 0, 0, 0, 0
 
-		var p *uint8
-	*/
-	stlink_usb_init_buffer(h, h.rx_ep, 6)
+	h.stlink_init_buffer(h.rx_ep, 6)
 
 	h.cmdbuf[h.cmdidx] = STLINK_GET_VERSION
 	h.cmdidx++
 
-	stlink_usb_xfer_noerrcheck(h, h.databuf, 6)
+	err := h.stlink_xfer_noerrcheck(h.databuf, 6)
+
+	if err != nil {
+		return err
+	}
 
 	version := be_to_h_u16(h.databuf)
 
-	v = uint8((version >> 12) & 0x0f)
-	x = uint8((version >> 6) & 0x3f)
-	y = uint8(version & 0x3f)
+	v = byte((version >> 12) & 0x0f)
+	x = byte((version >> 6) & 0x3f)
+	y = byte(version & 0x3f)
 
-	h.vid = le_to_h_u16(h.databuf[2:])
-	h.pid = le_to_h_u16(h.databuf[4:])
+	h.vid = gousb.ID(le_to_h_u16(h.databuf[2:]))
+	h.pid = gousb.ID(le_to_h_u16(h.databuf[4:]))
 
-	log.Debugf("v: %d, x: %d, y: %d, VID: %04x, PID: %04x", v, x, y, h.vid, h.pid)
+	switch h.pid {
+	case STLINK_V2_1_PID, STLINK_V2_1_NO_MSD_PID:
+		if (x <= 22 && y == 7) || (x >= 25 && y >= 7 && y <= 12) {
+			msd = x
+			swim = y
+			jtag = 0
+		} else {
+			jtag = x
+			msd = y
+			swim = 0
+		}
 
-	return true
+	default:
+		jtag = x
+		msd = 0
+		swim = y
+	}
+
+	/* STLINK-V3 requires a specific command */
+	if v == 3 && x == 0 && y == 0 {
+		h.stlink_init_buffer(h.rx_ep, 16)
+
+		h.cmdbuf[h.cmdidx] = STLINK_APIV3_GET_VERSION_EX
+		h.cmdidx++
+
+		err := h.stlink_xfer_noerrcheck(h.databuf, 12)
+
+		if err != nil {
+			return err
+		}
+
+		v = h.databuf[0]
+		swim = h.databuf[1]
+		jtag = h.databuf[2]
+		msd = h.databuf[3]
+		bridge = h.databuf[4]
+		h.vid = gousb.ID(le_to_h_u16(h.databuf[8:]))
+		h.pid = gousb.ID(le_to_h_u16(h.databuf[10:]))
+	}
+
+	h.version.stlink = int(v)
+	h.version.jtag = int(jtag)
+	h.version.swim = int(swim)
+
+	var flags uint32 = 0
+
+	switch h.version.stlink {
+	case 1:
+		/* ST-LINK/V1 from J11 switch to api-v2 (and support SWD) */
+		if h.version.jtag >= 11 {
+			h.version.jtag_api = STLINK_JTAG_API_V2
+		} else {
+			h.version.jtag_api = STLINK_JTAG_API_V1
+		}
+	case 2:
+		/* all ST-LINK/V2 and ST-Link/V2.1 use api-v2 */
+		h.version.jtag_api = STLINK_JTAG_API_V2
+
+		/* API for trace from J13 */
+		/* API for target voltage from J13 */
+		if h.version.jtag >= 13 {
+			flags |= STLINK_F_HAS_TRACE
+		}
+
+		/* preferred API to get last R/W status from J15 */
+		if h.version.jtag >= 15 {
+			flags |= STLINK_F_HAS_GETLASTRWSTATUS2
+		}
+
+		/* API to set SWD frequency from J22 */
+		if h.version.jtag >= 22 {
+			flags |= STLINK_F_HAS_SWD_SET_FREQ
+		}
+
+		/* API to set JTAG frequency from J24 */
+		/* API to access DAP registers from J24 */
+		if h.version.jtag >= 24 {
+			flags |= STLINK_F_HAS_JTAG_SET_FREQ
+			flags |= STLINK_F_HAS_DAP_REG
+		}
+
+		/* Quirk for read DP in JTAG mode (V2 only) from J24, fixed in J32 */
+		if h.version.jtag >= 24 && h.version.jtag < 32 {
+			flags |= STLINK_F_QUIRK_JTAG_DP_READ
+		}
+
+		/* API to read/write memory at 16 bit from J26 */
+		if h.version.jtag >= 26 {
+			flags |= STLINK_F_HAS_MEM_16BIT
+		}
+
+		/* API required to init AP before any AP access from J28 */
+		if h.version.jtag >= 28 {
+			flags |= STLINK_F_HAS_AP_INIT
+		}
+
+		/* API required to return proper error code on close AP from J29 */
+		if h.version.jtag >= 29 {
+			flags |= STLINK_F_FIX_CLOSE_AP
+		}
+
+		/* Banked regs (DPv1 & DPv2) support from V2J32 */
+		if h.version.jtag >= 32 {
+			flags |= STLINK_F_HAS_DPBANKSEL
+		}
+	case 3:
+		/* all STLINK-V3 use api-v3 */
+		h.version.jtag_api = STLINK_JTAG_API_V3
+
+		/* STLINK-V3 is a superset of ST-LINK/V2 */
+
+		/* API for trace */
+		/* API for target voltage */
+		flags |= STLINK_F_HAS_TRACE
+
+		/* preferred API to get last R/W status */
+		flags |= STLINK_F_HAS_GETLASTRWSTATUS2
+
+		/* API to access DAP registers */
+		flags |= STLINK_F_HAS_DAP_REG
+
+		/* API to read/write memory at 16 bit */
+		flags |= STLINK_F_HAS_MEM_16BIT
+
+		/* API required to init AP before any AP access */
+		flags |= STLINK_F_HAS_AP_INIT
+
+		/* API required to return proper error code on close AP */
+		flags |= STLINK_F_FIX_CLOSE_AP
+
+		/* Banked regs (DPv1 & DPv2) support from V3J2 */
+		if h.version.jtag >= 2 {
+			flags |= STLINK_F_HAS_DPBANKSEL
+		}
+
+		/* 8bit read/write max packet size 512 bytes from V3J6 */
+		if h.version.jtag >= 6 {
+			flags |= STLINK_F_HAS_RW8_512BYTES
+		}
+	default:
+		break
+	}
+
+	h.version.flags = flags
+
+	var v_str string = fmt.Sprintf("V%d", v)
+
+	if jtag > 0 || msd != 0 {
+		v_str += fmt.Sprintf("J%d", jtag)
+	}
+
+	if msd > 0 {
+		v_str += fmt.Sprintf("M%d", msd)
+	}
+
+	if bridge > 0 {
+		v_str += fmt.Sprintf("B%d", bridge)
+	}
+
+	serial_no, _ := h.usb_device.SerialNumber()
+
+	log.Debugf("Got ST-Link: %s [%s]", v_str, serial_no)
+
+	return nil
 }
 
-func Close(h *stlink_usb_handle) {
-	h.libusb_device.Close()
-	usb_close()
+func (h *StLinkHandle) Close() {
+	if h.usb_device != nil {
+		log.Debugf("Close ST-Link device [%04x:%04x]", uint16(h.vid), uint16(h.pid))
+
+		h.usb_interface.Close()
+		h.usb_config.Close()
+		h.usb_device.Close()
+	}
 }
 
-func stlink_usb_init_buffer(h *stlink_usb_handle, direction uint8, size uint32) {
+func (h *StLinkHandle) stlink_init_buffer(direction byte, size uint32) {
 	h.direction = direction
 	h.cmdidx = 0
-
-	if len(h.cmdbuf) == 0 {
-		h.cmdbuf = make([]uint8, STLINK_SG_SIZE)
-	}
-	if len(h.databuf) == 0 {
-		h.databuf = make([]uint8, STLINK_DATA_SIZE)
-	}
 
 	memset(h.cmdbuf, STLINK_SG_SIZE, 0)
 	memset(h.databuf, STLINK_DATA_SIZE, 0)
 
 	if h.version.stlink == 1 {
-		stlink_usb_xfer_v1_create_cmd(h, direction, size)
+		h.stlink_xfer_v1_create_cmd(direction, size)
 	}
 }
 
-func stlink_usb_xfer_v1_create_cmd(h *stlink_usb_handle, direction uint8, size uint32) {
+func (h *StLinkHandle) stlink_xfer_v1_create_cmd(direction uint8, size uint32) {
 	h.cmdbuf[0] = 'U'
 	h.cmdbuf[1] = 'S'
 	h.cmdbuf[2] = 'B'
@@ -260,6 +484,7 @@ func stlink_usb_xfer_v1_create_cmd(h *stlink_usb_handle, direction uint8, size u
 
 	buf_set_u32(h.cmdbuf[:h.cmdidx], 0, 32, size)
 	h.cmdidx += 4
+
 	/* cbw flags */
 	if direction == h.rx_ep {
 		h.cmdbuf[h.cmdidx] = ENDPOINT_IN
@@ -270,55 +495,141 @@ func stlink_usb_xfer_v1_create_cmd(h *stlink_usb_handle, direction uint8, size u
 
 	h.cmdbuf[h.cmdidx] = 0 /* lun */
 	h.cmdidx++
+
 	/* cdb clength (is filled in at xfer) */
 	h.cmdbuf[h.cmdidx] = 0
 	h.cmdidx++
 }
 
-func stlink_usb_xfer_noerrcheck(h *stlink_usb_handle, buffer []byte, size int) {
-	var _, cmdsize int = 0, STLINK_CMD_SIZE_V2
+func (h *StLinkHandle) stlink_xfer_noerrcheck(buffer []byte, size int) error {
+	var cmdsize int = STLINK_CMD_SIZE_V2
 
 	if h.version.stlink == 1 {
 		cmdsize = STLINK_SG_SIZE
 		h.cmdbuf[14] = h.cmdidx - 15
 	}
 
-	stlink_usb_xfer_rw(h, cmdsize, buffer, size)
-	/*
-
-		if (h->version.stlink == 1) {
-			if (stlink_usb_xfer_v1_get_status(handle) != ERROR_OK) {
-				// check csw status
-				if (h->cmdbuf[12] == 1) {
-					LOG_DEBUG("get sense");
-					if (stlink_usb_xfer_v1_get_sense(handle) != ERROR_OK)
-						return ERROR_FAIL;
-				}
-				return ERROR_FAIL;
-			}
-		}
-	*/
-}
-
-func stlink_usb_xfer_rw(h *stlink_usb_handle, cmdsize int, buffer []byte, size int) {
-	// write command buffer to tx_ep
-	outP, err := h.libusb_interface.OutEndpoint(int(h.tx_ep))
+	err := h.stlink_xfer_rw(cmdsize, buffer, size)
 
 	if err != nil {
-		log.Fatal("Could not open OEndpoint.", err)
+		return err
 	}
 
-	usb_write(outP, h.cmdbuf[:cmdsize])
+	if h.version.stlink == 1 {
+		err := h.stlink_xfer_v1_get_status()
+
+		if err == nil {
+			if h.cmdbuf[12] == 1 {
+				log.Debug("Check sense")
+
+				err = h.stlink_xfer_v1_get_sense()
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (h *StLinkHandle) stlink_xfer_rw(cmdsize int, buffer []byte, size int) error {
+	// write command buffer to tx_ep
+	outP, err := h.usb_interface.OutEndpoint(int(h.tx_ep))
+
+	if err != nil {
+		return errors.New("Could not open out endpoint")
+	}
+
+	_, err = usb_write(outP, h.cmdbuf[:cmdsize])
+
+	if err != nil {
+		return err
+	}
 
 	if h.direction == h.tx_ep && size > 0 {
-		usb_write(outP, buffer[:size])
-	} else if h.direction == h.rx_ep && size > 0 {
-		inP, err := h.libusb_interface.InEndpoint(int(h.rx_ep))
+		_, err = usb_write(outP, buffer[:size])
 
 		if err != nil {
-			log.Fatal("Could not get input endpoint of device")
+			return err
 		}
 
-		usb_read(inP, buffer)
+	} else if h.direction == h.rx_ep && size > 0 {
+
+		inP, err := h.usb_interface.InEndpoint(int(h.rx_ep))
+
+		if err != nil {
+			return errors.New("Could not get in endpoint")
+		}
+
+		_, err = usb_read(inP, buffer)
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (h *StLinkHandle) stlink_xfer_v1_get_status() error {
+	memset(h.cmdbuf, STLINK_SG_SIZE, 0)
+
+	in_endpoint, err := h.usb_interface.InEndpoint(int(h.rx_ep))
+
+	if err != nil {
+		return err
+	}
+
+	var b_read int = 0
+
+	b_read, err = usb_read(in_endpoint, h.cmdbuf)
+
+	if err != nil || b_read != 13 {
+		return errors.New("ST-Link V1 status read error")
+	}
+
+	t1 := buf_get_u32(h.cmdbuf, 0, 32)
+
+	/* check for USBS */
+	if t1 != 0x53425355 {
+		return errors.New("No USBS")
+	}
+
+	/*
+	 * CSW status:
+	 * 0 success
+	 * 1 command failure
+	 * 2 phase error
+	 */
+	if h.cmdbuf[12] != 0 {
+		log.Errorf("Got CSW status: %d", h.cmdbuf[12])
+		return errors.New("GOT CSW status error")
+	}
+
+	return nil
+}
+
+func (h *StLinkHandle) stlink_xfer_v1_get_sense() error {
+
+	h.stlink_init_buffer(h.rx_ep, 16)
+
+	h.cmdbuf[h.cmdidx] = REQUEST_SENSE
+	h.cmdidx++
+	h.cmdbuf[h.cmdidx] = 0
+	h.cmdidx++
+	h.cmdbuf[h.cmdidx] = 0
+	h.cmdidx++
+	h.cmdbuf[h.cmdidx] = 0
+	h.cmdidx++
+	h.cmdbuf[h.cmdidx] = REQUEST_SENSE_LENGTH
+
+	err := h.stlink_xfer_rw(REQUEST_SENSE_LENGTH, h.databuf, 16)
+
+	if err != nil {
+		return err
+	} else {
+		err := h.stlink_xfer_v1_get_status()
+		return err
 	}
 }
