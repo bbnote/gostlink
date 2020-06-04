@@ -1,3 +1,12 @@
+// Copyright 2020 Sebastian Lehmann. All rights reserved.
+// Use of this source code is governed by a GNU-style
+// license that can be found in the LICENSE file.
+
+// this code is mainly inspired and based on the openocd project source code
+// for detailed information see
+
+// https://sourceforge.net/p/openocd/code
+
 package gostlink
 
 import (
@@ -62,7 +71,7 @@ func (h *StLinkHandle) usb_mode_enter(st_mode StLinkMode) error {
 		return errors.New("Cannot set usb mode from DFU or mass stlink configuration")
 	}
 
-	return h.usb_cmd_allow_retry(h.databuf, int(rx_size))
+	return h.usb_cmd_allow_retry(h.databuf, rx_size)
 }
 
 func (h *StLinkHandle) usb_current_mode() (byte, error) {

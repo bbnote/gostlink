@@ -27,7 +27,7 @@ func (h *StLinkHandle) usb_init_buffer(direction byte, size uint32) {
 	}
 }
 
-func (h *StLinkHandle) usb_xfer_noerrcheck(buffer []byte, size int) error {
+func (h *StLinkHandle) usb_xfer_noerrcheck(buffer []byte, size uint32) error {
 	var cmdsize int = STLINK_CMD_SIZE_V2
 
 	if h.version.stlink == 1 {
@@ -59,7 +59,7 @@ func (h *StLinkHandle) usb_xfer_noerrcheck(buffer []byte, size int) error {
 	return nil
 }
 
-func (h *StLinkHandle) usb_xfer_errcheck(buffer []byte, size int) int {
+func (h *StLinkHandle) usb_xfer_errcheck(buffer []byte, size uint32) int {
 
 	err := h.usb_xfer_noerrcheck(buffer, size)
 
@@ -71,7 +71,7 @@ func (h *StLinkHandle) usb_xfer_errcheck(buffer []byte, size int) int {
 	return h.usb_error_check()
 }
 
-func (h *StLinkHandle) usb_xfer_rw(cmdsize int, buffer []byte, size int) error {
+func (h *StLinkHandle) usb_xfer_rw(cmdsize int, buffer []byte, size uint32) error {
 	// write command buffer to tx_ep
 	outP, err := h.usb_interface.OutEndpoint(int(h.tx_ep))
 

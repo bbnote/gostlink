@@ -244,7 +244,7 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 	}
 
 	buffer := make([]byte, 4)
-	err_code, err := handle.usb_read_mem32(CPUID, 4, buffer)
+	err_code := handle.usb_read_mem32(CPUID_BASE_REGISTER, uint32(4), buffer)
 
 	if err_code == ERROR_OK {
 		var cpuid uint32 = le_to_h_u32(buffer)
@@ -252,6 +252,7 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 
 		if i == 4 || i == 3 {
 			/* Cortex-M3/M4 has 4096 bytes autoincrement range */
+			log.Debug("Set mem packet layout according to Cortex M3/M4")
 			handle.max_mem_packet = (1 << 12)
 		}
 	}
@@ -269,6 +270,51 @@ func (h *StLinkHandle) Close() {
 		h.usb_config.Close()
 		h.usb_device.Close()
 	}
+}
+
+func (h *StLinkHandle) GetTargetVoltage() (float32, error) {
+	var adc_results [2]uint32
+
+	/* no error message, simply quit with error */
+	if (h.version.flags & STLINK_F_HAS_TARGET_VOLT) == 0 {
+		return -1.0, errors.New("Device does not support voltage measurement")
+	}
+
+	h.usb_init_buffer(h.rx_ep, 8)
+
+	h.cmdbuf[h.cmdidx] = STLINK_GET_TARGET_VOLTAGE
+	h.cmdidx++
+
+	err := h.usb_xfer_noerrcheck(h.databuf, 8)
+
+	if err != nil {
+		return -1.0, err
+	}
+
+	/* convert result */
+	adc_results[0] = le_to_h_u32(h.databuf)
+	adc_results[1] = le_to_h_u32(h.databuf[4:])
+
+	var target_voltage float32 = 0.0
+
+	if adc_results[0] > 0 {
+		target_voltage = 2 * (float32(adc_results[1]) * (1.2 / float32(adc_results[0])))
+	}
+
+	log.Infof("Target voltage: %f", target_voltage)
+
+	return target_voltage, nil
+}
+
+func (h *StLinkHandle) GetIdCode() uint32 {
+
+	buffer := make([]byte, 1)
+
+	ret := h.usb_read_mem(0xE0042000, 4, 1, buffer)
+
+	log.Debugf("Got return code: %d", ret)
+
+	return uint32(buffer[0])
 }
 
 func (h *StLinkHandle) usb_parse_version() error {
@@ -460,40 +506,6 @@ func (h *StLinkHandle) usb_parse_version() error {
 	return nil
 }
 
-func (h *StLinkHandle) GetTargetVoltage() (float32, error) {
-	var adc_results [2]uint32
-
-	/* no error message, simply quit with error */
-	if (h.version.flags & STLINK_F_HAS_TARGET_VOLT) == 0 {
-		return -1.0, errors.New("Device does not support voltage measurement")
-	}
-
-	h.usb_init_buffer(h.rx_ep, 8)
-
-	h.cmdbuf[h.cmdidx] = STLINK_GET_TARGET_VOLTAGE
-	h.cmdidx++
-
-	err := h.usb_xfer_noerrcheck(h.databuf, 8)
-
-	if err != nil {
-		return -1.0, err
-	}
-
-	/* convert result */
-	adc_results[0] = le_to_h_u32(h.databuf)
-	adc_results[1] = le_to_h_u32(h.databuf[4:])
-
-	var target_voltage float32 = 0.0
-
-	if adc_results[0] > 0 {
-		target_voltage = 2 * (float32(adc_results[1]) * (1.2 / float32(adc_results[0])))
-	}
-
-	log.Infof("Target voltage: %f", target_voltage)
-
-	return target_voltage, nil
-}
-
 func (h *StLinkHandle) stlink_speed(khz int, query bool) (int, error) {
 
 	switch h.st_mode {
@@ -527,7 +539,7 @@ func (h *StLinkHandle) stlink_speed(khz int, query bool) (int, error) {
 
   Returns an openocd result code.
 */
-func (h *StLinkHandle) usb_cmd_allow_retry(buffer []byte, size int) error {
+func (h *StLinkHandle) usb_cmd_allow_retry(buffer []byte, size uint32) error {
 	var retries int = 0
 
 	for true {
@@ -592,4 +604,22 @@ func (h *StLinkHandle) usb_assert_srst(srst byte) error {
 	h.cmdidx++
 
 	return h.usb_cmd_allow_retry(h.databuf, 2)
+}
+
+func (h *StLinkHandle) max_block_size(tar_autoincr_block uint32, address uint32) uint32 {
+	var max_tar_block = (tar_autoincr_block - ((tar_autoincr_block - 1) & address))
+
+	if max_tar_block == 0 {
+		max_tar_block = 4
+	}
+
+	return max_tar_block
+}
+
+func (h *StLinkHandle) usb_block() uint32 {
+	if (h.version.flags & STLINK_F_HAS_RW8_512BYTES) > 0 {
+		return STLINKV3_MAX_RW8
+	} else {
+		return STLINK_MAX_RW8
+	}
 }

@@ -7,6 +7,7 @@ const (
 	ERROR_WAIT                    = -1
 	ERROR_FAIL                    = -2
 	ERROR_TARGET_UNALIGNED_ACCESS = -3
+	ERROR_COMMAND_NOTFOUND        = -4
 )
 
 /**
