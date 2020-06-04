@@ -64,3 +64,19 @@ func be_to_h_u16(buffer []byte) uint16 {
 func le_to_h_u16(buffer []byte) uint16 {
 	return uint16(uint16(buffer[0]) | (uint16(buffer[1]) << 8))
 }
+
+func le_to_h_u32(buffer []byte) uint32 {
+	return (uint32(buffer[0]) | uint32(buffer[1])<<8 | uint32(buffer[2])<<16 | uint32(buffer[3])<<24)
+}
+
+func h_u32_to_le(buffer []byte, val int) {
+	buffer[3] = byte(val >> 24)
+	buffer[2] = byte(val >> 16)
+	buffer[1] = byte(val >> 8)
+	buffer[0] = byte(val >> 0)
+}
+
+func h_u16_to_le(buffer []byte, val int) {
+	buffer[1] = byte(val >> 8)
+	buffer[0] = byte(val >> 0)
+}

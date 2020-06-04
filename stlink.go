@@ -12,17 +12,11 @@ package gostlink
 import (
 	"errors"
 	"fmt"
+	"math"
+	"time"
 
 	"github.com/google/gousb"
 	log "github.com/sirupsen/logrus"
-)
-
-const (
-	STLINK_SG_SIZE     = 31
-	STLINK_DATA_SIZE   = 4096
-	STLINK_CMD_SIZE_V2 = 16
-	STLINK_CMD_SIZE_V1 = 10
-	STLINK_SERIAL_LEN  = 24
 )
 
 const STLINK_ALL_VIDS = 0xFFFF
@@ -30,87 +24,6 @@ const STLINK_ALL_PIDS = 0xFFFF
 
 var stlink_supported_vids = []gousb.ID{0x0483} // STLINK Vendor ID
 var stlink_supported_pids = []gousb.ID{0x3744, 0x3748, 0x374b, 0x374d, 0x374e, 0x374f, 0x3752, 0x3753}
-
-type StLinkMode uint8
-
-const (
-	STLINK_MODE_UNKNOWN    StLinkMode = 0
-	STLINK_MODE_DFU                   = 1
-	STLINK_MODE_MASS                  = 2
-	STLINK_MODE_DEBUG_JTAG            = 3
-	STLINK_MODE_DEBUG_SWD             = 4
-	STLINK_MODE_DEBUG_SWIM            = 5
-)
-
-type StLinkApiVersion uint8
-
-const (
-	STLINK_JTAG_API_V1 StLinkApiVersion = 1
-	STLINK_JTAG_API_V2                  = 2
-	STLINK_JTAG_API_V3                  = 3
-)
-
-const (
-	STLINK_V1_PID           = 0x3744
-	STLINK_V2_PID           = 0x3748
-	STLINK_V2_1_PID         = 0x374B
-	STLINK_V2_1_NO_MSD_PID  = 0x3752
-	STLINK_V3_USBLOADER_PID = 0x374D
-	STLINK_V3E_PID          = 0x374E
-	STLINK_V3S_PID          = 0x374F
-	STLINK_V3_2VCP_PID      = 0x3753
-)
-
-const (
-	ENDPOINT_IN  = 0x80
-	ENDPOINT_OUT = 0x00
-
-	STLINK_WRITE_TIMEOUT = 1000
-	STLINK_READ_TIMEOUT  = 1000
-
-	STLINK_RX_EP    = (1 | ENDPOINT_IN)
-	STLINK_TX_EP    = (2 | ENDPOINT_OUT)
-	STLINK_TRACE_EP = (3 | ENDPOINT_IN)
-
-	STLINK_V2_1_TX_EP    = (1 | ENDPOINT_OUT)
-	STLINK_V2_1_TRACE_EP = (2 | ENDPOINT_IN)
-)
-
-const (
-	STLINK_GET_VERSION        = 0xF1
-	STLINK_DEBUG_COMMAND      = 0xF2
-	STLINK_DFU_COMMAND        = 0xF3
-	STLINK_SWIM_COMMAND       = 0xF4
-	STLINK_GET_CURRENT_MODE   = 0xF5
-	STLINK_GET_TARGET_VOLTAGE = 0xF7
-)
-
-const (
-	STLINK_DEBUG_PORT_ACCESS = 0xffff
-
-	STLINK_TRACE_SIZE   = 4096
-	STLINK_TRACE_MAX_HZ = 2000000
-
-	STLINK_V3_MAX_FREQ_NB       = 10
-	STLINK_APIV3_GET_VERSION_EX = 0xFB
-
-	REQUEST_SENSE        = 0x03
-	REQUEST_SENSE_LENGTH = 18
-)
-
-const (
-	STLINK_F_HAS_TRACE            = 0x01
-	STLINK_F_HAS_SWD_SET_FREQ     = 0x02
-	STLINK_F_HAS_JTAG_SET_FREQ    = 0x04
-	STLINK_F_HAS_MEM_16BIT        = 0x08
-	STLINK_F_HAS_GETLASTRWSTATUS2 = 0x10
-	STLINK_F_HAS_DAP_REG          = 0x20
-	STLINK_F_QUIRK_JTAG_DP_READ   = 0x40
-	STLINK_F_HAS_AP_INIT          = 0x80
-	STLINK_F_HAS_DPBANKSEL        = 0x100
-	STLINK_F_HAS_RW8_512BYTES     = 0x200
-	STLINK_F_FIX_CLOSE_AP         = 0x400
-)
 
 type StLinkVersion struct {
 	/** */
@@ -533,6 +446,18 @@ func (h *StLinkHandle) stlink_xfer_noerrcheck(buffer []byte, size int) error {
 	return nil
 }
 
+func (h *StLinkHandle) stlink_xfer_errcheck(buffer []byte, size int) int {
+
+	err := h.stlink_xfer_noerrcheck(buffer, size)
+
+	if err != nil {
+		log.Error(err)
+		return ERROR_FAIL
+	}
+
+	return h.stlink_usb_error_check()
+}
+
 func (h *StLinkHandle) stlink_xfer_rw(cmdsize int, buffer []byte, size int) error {
 	// write command buffer to tx_ep
 	outP, err := h.usb_interface.OutEndpoint(int(h.tx_ep))
@@ -570,6 +495,95 @@ func (h *StLinkHandle) stlink_xfer_rw(cmdsize int, buffer []byte, size int) erro
 	}
 
 	return nil
+}
+
+/**
+  Converts an STLINK status code held in the first byte of a response
+  to an openocd error, logs any error/wait status as debug output.
+*/
+func (h *StLinkHandle) stlink_usb_error_check() int {
+
+	if h.st_mode == STLINK_MODE_DEBUG_SWIM {
+		switch h.databuf[0] {
+		case STLINK_SWIM_ERR_OK:
+			return ERROR_OK
+
+		case STLINK_SWIM_BUSY:
+			log.Debug("SWIM Busy")
+			return ERROR_WAIT
+
+		default:
+			log.Debugf("unknown/unexpected STLINK status code 0x%x", h.databuf[0])
+			return ERROR_FAIL
+		}
+	}
+
+	/* TODO: no error checking yet on api V1 */
+	if h.version.jtag_api == STLINK_JTAG_API_V1 {
+		h.databuf[0] = STLINK_DEBUG_ERR_OK
+	}
+
+	switch h.databuf[0] {
+	case STLINK_DEBUG_ERR_OK:
+		return ERROR_OK
+
+	case STLINK_DEBUG_ERR_FAULT:
+		log.Debugf("SWD fault response (0x%x)", STLINK_DEBUG_ERR_FAULT)
+		return ERROR_FAIL
+	case STLINK_SWD_AP_WAIT:
+		log.Debugf("wait status SWD_AP_WAIT (0x%x)", STLINK_SWD_AP_WAIT)
+		return ERROR_WAIT
+	case STLINK_SWD_DP_WAIT:
+		log.Debugf("wait status SWD_DP_WAIT (0x%x)", STLINK_SWD_DP_WAIT)
+		return ERROR_WAIT
+	case STLINK_JTAG_GET_IDCODE_ERROR:
+		log.Debug("STLINK_JTAG_GET_IDCODE_ERROR")
+		return ERROR_FAIL
+	case STLINK_JTAG_WRITE_ERROR:
+		log.Debug("Write error")
+		return ERROR_FAIL
+	case STLINK_JTAG_WRITE_VERIF_ERROR:
+		log.Debug("Write verify error, ignoring")
+		return ERROR_OK
+	case STLINK_SWD_AP_FAULT:
+		/* git://git.ac6.fr/openocd commit 657e3e885b9ee10
+		 * returns ERROR_OK with the comment:
+		 * Change in error status when reading outside RAM.
+		 * This fix allows CDT plugin to visualize memory.
+		 */
+		log.Debug("STLINK_SWD_AP_FAULT")
+		return ERROR_FAIL
+	case STLINK_SWD_AP_ERROR:
+		log.Debug("STLINK_SWD_AP_ERROR")
+		return ERROR_FAIL
+	case STLINK_SWD_AP_PARITY_ERROR:
+		log.Debug("STLINK_SWD_AP_PARITY_ERROR")
+		return ERROR_FAIL
+	case STLINK_SWD_DP_FAULT:
+		log.Debug("STLINK_SWD_DP_FAULT")
+		return ERROR_FAIL
+	case STLINK_SWD_DP_ERROR:
+		log.Debug("STLINK_SWD_DP_ERROR")
+		return ERROR_FAIL
+	case STLINK_SWD_DP_PARITY_ERROR:
+		log.Debug("STLINK_SWD_DP_PARITY_ERROR")
+		return ERROR_FAIL
+	case STLINK_SWD_AP_WDATA_ERROR:
+		log.Debug("STLINK_SWD_AP_WDATA_ERROR")
+		return ERROR_FAIL
+	case STLINK_SWD_AP_STICKY_ERROR:
+		log.Debug("STLINK_SWD_AP_STICKY_ERROR")
+		return ERROR_FAIL
+	case STLINK_SWD_AP_STICKYORUN_ERROR:
+		log.Debug("STLINK_SWD_AP_STICKYORUN_ERROR")
+		return ERROR_FAIL
+	case STLINK_BAD_AP_ERROR:
+		log.Debug("STLINK_BAD_AP_ERROR")
+		return ERROR_FAIL
+	default:
+		log.Debugf("unknown/unexpected STLINK status code 0x%x", h.databuf[0])
+		return ERROR_FAIL
+	}
 }
 
 func (h *StLinkHandle) stlink_xfer_v1_get_status() error {
@@ -631,5 +645,574 @@ func (h *StLinkHandle) stlink_xfer_v1_get_sense() error {
 	} else {
 		err := h.stlink_xfer_v1_get_status()
 		return err
+	}
+}
+
+func (h *StLinkHandle) stlink_usb_current_mode() (byte, error) {
+
+	h.stlink_init_buffer(h.rx_ep, 2)
+
+	h.cmdbuf[h.cmdidx] = STLINK_GET_CURRENT_MODE
+	h.cmdidx++
+
+	err := h.stlink_xfer_noerrcheck(h.databuf, 2)
+
+	if err != nil {
+		return 0, err
+	} else {
+		return h.databuf[0], nil
+	}
+}
+
+func (h *StLinkHandle) stlink_usb_init_mode(connect_under_reset bool, initial_interface_speed int) error {
+
+	mode, err := h.stlink_usb_current_mode()
+
+	if err != nil {
+		log.Error("Could not get usb mode")
+		return err
+	}
+
+	log.Debugf("Got usb mode: %d", mode)
+
+	var stlink_mode StLinkMode
+
+	switch mode {
+	case STLINK_DEV_DFU_MODE:
+		stlink_mode = STLINK_MODE_DFU
+
+	case STLINK_DEV_DEBUG_MODE:
+		stlink_mode = STLINK_MODE_DEBUG_SWD
+
+	case STLINK_DEV_SWIM_MODE:
+		stlink_mode = STLINK_MODE_DEBUG_SWIM
+
+	case STLINK_DEV_BOOTLOADER_MODE, STLINK_DEV_MASS_MODE:
+		stlink_mode = STLINK_MODE_UNKNOWN
+	default:
+		stlink_mode = STLINK_MODE_UNKNOWN
+	}
+
+	if stlink_mode != STLINK_MODE_UNKNOWN {
+		h.stlink_usb_leave_mode(stlink_mode)
+	}
+
+	mode, err = h.stlink_usb_current_mode()
+
+	if err != nil {
+		log.Error("Could not get usb mode")
+		return err
+	}
+
+	/* we check the target voltage here as an aid to debugging connection problems.
+	 * the stlink requires the target Vdd to be connected for reliable debugging.
+	 * this cmd is supported in all modes except DFU
+	 */
+	if mode != STLINK_DEV_DFU_MODE {
+		/* check target voltage (if supported) */
+		voltage, err := h.stlink_check_voltage()
+
+		if err != nil {
+			log.Error(err)
+			// attempt to continue as it is not a catastrophic failure
+		} else {
+			if voltage < 1.5 {
+				log.Error("target voltage may be too low for reliable debugging")
+			}
+		}
+	}
+
+	log.Debugf("MODE: 0x%02X", mode)
+
+	stlink_mode = h.st_mode
+
+	if stlink_mode == STLINK_MODE_UNKNOWN {
+		return errors.New("Selected mode (transport) not supported")
+	}
+
+	if stlink_mode == STLINK_MODE_DEBUG_JTAG {
+		if (h.version.flags & STLINK_F_HAS_JTAG_SET_FREQ) != 0 {
+			stlink_dump_speed_map(stlink_khz_to_speed_map_jtag[:])
+			h.stlink_speed(initial_interface_speed, false)
+		}
+	} else if stlink_mode == STLINK_MODE_DEBUG_SWD {
+		if (h.version.flags & STLINK_F_HAS_JTAG_SET_FREQ) != 0 {
+			stlink_dump_speed_map(stlink_khz_to_speed_map_swd[:])
+			h.stlink_speed(initial_interface_speed, false)
+		}
+	}
+
+	if h.version.jtag_api == STLINK_JTAG_API_V3 {
+		var smap = make([]speed_map, STLINK_V3_MAX_FREQ_NB)
+
+		h.stlink_get_com_freq(stlink_mode == STLINK_MODE_DEBUG_JTAG, &smap)
+		stlink_dump_speed_map(smap)
+		h.stlink_speed(initial_interface_speed, false)
+	}
+
+	// preliminary SRST assert:
+	//  We want SRST is asserted before activating debug signals (mode_enter).
+	//  As the required mode has not been set, the adapter may not know what pin to use.
+	//  Tested firmware STLINK v2 JTAG v29 API v2 SWIM v0 uses T_NRST pin by default
+	//  Tested firmware STLINK v2 JTAG v27 API v2 SWIM v6 uses T_NRST pin by default
+	//  after power on, SWIM_RST stays unchanged
+	if connect_under_reset && stlink_mode != STLINK_MODE_DEBUG_SWIM {
+		h.stlink_usb_assert_srst(0)
+		// do not check the return status here, we will
+		//   proceed and enter the desired mode below
+		//   and try asserting srst again.
+	}
+
+	err = h.stlink_usb_mode_enter(stlink_mode)
+
+	if err != nil {
+		return err
+	}
+
+	if connect_under_reset {
+		err = h.stlink_usb_assert_srst(0)
+		if err != nil {
+			return err
+		}
+	}
+
+	mode, err = h.stlink_usb_current_mode()
+
+	if err != nil {
+		return err
+	}
+
+	log.Debugf("Mode: 0x%02x", mode)
+
+	return nil
+}
+
+func (h *StLinkHandle) stlink_usb_leave_mode(mode StLinkMode) error {
+	h.stlink_init_buffer(h.rx_ep, 0)
+
+	switch mode {
+	case STLINK_MODE_DEBUG_JTAG, STLINK_MODE_DEBUG_SWD:
+		h.cmdbuf[h.cmdidx] = STLINK_DEBUG_COMMAND
+		h.cmdidx++
+		h.cmdbuf[h.cmdidx] = STLINK_DEBUG_EXIT
+		h.cmdidx++
+
+	case STLINK_MODE_DEBUG_SWIM:
+		h.cmdbuf[h.cmdidx] = STLINK_SWIM_COMMAND
+		h.cmdidx++
+		h.cmdbuf[h.cmdidx] = STLINK_SWIM_EXIT
+		h.cmdidx++
+
+	case STLINK_MODE_DFU:
+		h.cmdbuf[h.cmdidx] = STLINK_DFU_COMMAND
+		h.cmdidx++
+		h.cmdbuf[h.cmdidx] = STLINK_DFU_EXIT
+		h.cmdidx++
+
+	case STLINK_MODE_MASS:
+		return errors.New("Unknown stlink mode")
+	default:
+		return errors.New("Unknown stlink mode")
+	}
+
+	err := h.stlink_xfer_noerrcheck(h.databuf, 0)
+
+	return err
+}
+
+/** Issue an STLINK command via USB transfer, with retries on any wait status responses.
+
+  Works for commands where the STLINK_DEBUG status is returned in the first
+  byte of the response packet. For SWIM a SWIM_READSTATUS is requested instead.
+
+  Returns an openocd result code.
+*/
+func (h *StLinkHandle) stlink_cmd_allow_retry(buffer []byte, size int) error {
+	var retries int = 0
+
+	for true {
+		if (h.st_mode != STLINK_MODE_DEBUG_SWIM) || retries > 0 {
+			err := h.stlink_xfer_noerrcheck(buffer, size)
+			if err != nil {
+				return err
+			}
+		}
+
+		/* TODO: Implement DEBUG swim!
+		if (h.st_mode == STLINK_MODE_DEBUG_SWIM) {
+			err = h.stlink_swim_status(handle);
+			if err != nil {
+				return err
+			}
+		}*/
+
+		err_code := h.stlink_usb_error_check()
+
+		if err_code == ERROR_WAIT && retries < MAX_WAIT_RETRIES {
+			var delay_us time.Duration = (1 << retries) * 1000
+
+			retries++
+			log.Debugf("stlink_cmd_allow_retry ERROR_WAIT, retry %d, delaying %u microseconds", retries, delay_us)
+			time.Sleep(delay_us * 1000)
+
+			continue
+		}
+
+		if err_code == ERROR_FAIL {
+			return errors.New("Got error during usb check")
+		} else {
+			return nil
+		}
+	}
+
+	return errors.New("Invalid allow cmd retry state")
+}
+
+func (h *StLinkHandle) stlink_usb_assert_srst(srst byte) error {
+
+	/* TODO:
+		* Implement SWIM debugger
+	     *
+		if h.st_mode == STLINK_MODE_DEBUG_SWIM {
+			return stlink_swim_assert_reset(handle, srst);
+		}
+	*/
+
+	if h.version.stlink == 1 {
+		return errors.New("Could not find rsrt command on target")
+	}
+
+	h.stlink_init_buffer(h.rx_ep, 2)
+
+	h.cmdbuf[h.cmdidx] = STLINK_DEBUG_COMMAND
+	h.cmdidx++
+	h.cmdbuf[h.cmdidx] = STLINK_DEBUG_APIV2_DRIVE_NRST
+	h.cmdidx++
+	h.cmdbuf[h.cmdidx] = srst
+	h.cmdidx++
+
+	return h.stlink_cmd_allow_retry(h.databuf, 2)
+}
+
+func (h *StLinkHandle) stlink_check_voltage() (float32, error) {
+	var adc_results [2]uint32
+
+	/* no error message, simply quit with error */
+	if (h.version.flags & STLINK_F_HAS_TARGET_VOLT) == 0 {
+		return -1.0, errors.New("Device does not support voltage measurement")
+	}
+
+	h.stlink_init_buffer(h.rx_ep, 8)
+
+	h.cmdbuf[h.cmdidx] = STLINK_GET_TARGET_VOLTAGE
+	h.cmdidx++
+
+	err := h.stlink_xfer_noerrcheck(h.databuf, 8)
+
+	if err != nil {
+		return -1.0, err
+	}
+
+	/* convert result */
+	adc_results[0] = le_to_h_u32(h.databuf)
+	adc_results[1] = le_to_h_u32(h.databuf[4:])
+
+	var target_voltage float32 = 0.0
+
+	if adc_results[0] > 0 {
+		target_voltage = 2 * (float32(adc_results[1]) * (1.2 / float32(adc_results[0])))
+	}
+
+	log.Infof("Target voltage: %f", target_voltage)
+
+	return target_voltage, nil
+}
+
+/** */
+func (h *StLinkHandle) stlink_usb_mode_enter(st_mode StLinkMode) error {
+	var rx_size uint32 = 0
+	/* on api V2 we are able the read the latest command
+	 * status
+	 * TODO: we need the test on api V1 too
+	 */
+	if h.version.jtag_api != STLINK_JTAG_API_V1 {
+		rx_size = 2
+	}
+
+	h.stlink_init_buffer(h.rx_ep, rx_size)
+
+	switch st_mode {
+	case STLINK_MODE_DEBUG_JTAG:
+		h.cmdbuf[h.cmdidx] = STLINK_DEBUG_COMMAND
+		h.cmdidx++
+
+		if h.version.jtag_api == STLINK_JTAG_API_V1 {
+			h.cmdbuf[h.cmdidx] = STLINK_DEBUG_APIV1_ENTER
+		} else {
+			h.cmdbuf[h.cmdidx] = STLINK_DEBUG_APIV2_ENTER
+		}
+		h.cmdidx++
+
+		h.cmdbuf[h.cmdidx] = STLINK_DEBUG_ENTER_JTAG_NO_RESET
+		h.cmdidx++
+
+	case STLINK_MODE_DEBUG_SWD:
+		h.cmdbuf[h.cmdidx] = STLINK_DEBUG_COMMAND
+		h.cmdidx++
+
+		if h.version.jtag_api == STLINK_JTAG_API_V1 {
+			h.cmdbuf[h.cmdidx] = STLINK_DEBUG_APIV1_ENTER
+		} else {
+			h.cmdbuf[h.cmdidx] = STLINK_DEBUG_APIV2_ENTER
+		}
+		h.cmdidx++
+
+		h.cmdbuf[h.cmdidx] = STLINK_DEBUG_ENTER_SWD_NO_RESET
+		h.cmdidx++
+
+	case STLINK_MODE_DEBUG_SWIM:
+		h.cmdbuf[h.cmdidx] = STLINK_SWIM_COMMAND
+		h.cmdidx++
+		h.cmdbuf[h.cmdidx] = STLINK_SWIM_ENTER
+		h.cmdidx++
+
+		/* swim enter does not return any response or status */
+		return h.stlink_xfer_noerrcheck(h.databuf, 0)
+	case STLINK_MODE_DFU:
+	case STLINK_MODE_MASS:
+	default:
+		return errors.New("Cannot set usb mode from DFU or mass stlink configuration")
+	}
+
+	return h.stlink_cmd_allow_retry(h.databuf, int(rx_size))
+}
+
+func (h *StLinkHandle) stlink_speed(khz int, query bool) (int, error) {
+
+	switch h.st_mode {
+	/*case STLINK_MODE_DEBUG_SWIM:
+	return stlink_speed_swim(khz, query)
+	*/
+
+	case STLINK_MODE_DEBUG_SWD:
+		if h.version.jtag_api == STLINK_JTAG_API_V3 {
+			return h.stlink_speed_v3(false, khz, query)
+		} else {
+			return h.stlink_speed_swd(khz, query)
+		}
+
+	/*case STLINK_MODE_DEBUG_JTAG:
+	if h.version.jtag_api == STLINK_JTAG_API_V3 {
+		return stlink_speed_v3(true, khz, query)
+	} else {
+		return stlink_speed_jtag(khz, query)
+	}
+	*/
+	default:
+		return khz, errors.New("Requested ST-Link mode not supported yet!")
+	}
+}
+
+func (h *StLinkHandle) stlink_speed_v3(is_jtag bool, khz int, query bool) (int, error) {
+
+	var smap = make([]speed_map, STLINK_V3_MAX_FREQ_NB)
+
+	h.stlink_get_com_freq(is_jtag, &smap)
+
+	speed_index, err := stlink_match_speed_map(smap, khz, query)
+
+	if err != nil {
+		return khz, err
+	}
+
+	if !query {
+		err := h.stlink_set_com_freq(is_jtag, smap[speed_index].speed)
+
+		if err != nil {
+			return khz, err
+		}
+	}
+
+	return smap[speed_index].speed, nil
+}
+
+func (h *StLinkHandle) stlink_speed_swd(khz int, query bool) (int, error) {
+
+	/* old firmware cannot change it */
+	if (h.version.flags & STLINK_F_HAS_SWD_SET_FREQ) == 0 {
+		return khz, errors.New("Cannot change speed on old firmware")
+	}
+
+	speed_index, err := stlink_match_speed_map(stlink_khz_to_speed_map_swd[:], khz, query)
+
+	if err != nil {
+		return khz, err
+	}
+
+	if !query {
+		error := h.stlink_usb_set_swdclk(uint16(stlink_khz_to_speed_map_swd[speed_index].speed_divisor))
+
+		if error != nil {
+			return khz, errors.New("Unable to set adapter speed")
+		}
+	}
+
+	return stlink_khz_to_speed_map_swd[speed_index].speed, nil
+}
+
+func (h *StLinkHandle) stlink_usb_set_swdclk(clk_divisor uint16) error {
+
+	if (h.version.flags & STLINK_F_HAS_SWD_SET_FREQ) == 0 {
+		errors.New("Cannot change speed on this firmware")
+	}
+
+	h.stlink_init_buffer(h.rx_ep, 2)
+
+	h.cmdbuf[h.cmdidx] = STLINK_DEBUG_COMMAND
+	h.cmdidx++
+	h.cmdbuf[h.cmdidx] = STLINK_DEBUG_APIV2_SWD_SET_FREQ
+	h.cmdidx++
+
+	h_u16_to_le(h.cmdbuf[h.cmdidx:], int(clk_divisor))
+	h.cmdidx += 2
+
+	err := h.stlink_cmd_allow_retry(h.databuf, 2)
+
+	return err
+}
+
+func (h *StLinkHandle) stlink_get_com_freq(is_jtag bool, smap *[]speed_map) error {
+
+	if h.version.jtag_api != STLINK_JTAG_API_V3 {
+		errors.New("Unknown command")
+	}
+
+	h.stlink_init_buffer(h.rx_ep, 16)
+
+	h.cmdbuf[h.cmdidx] = STLINK_DEBUG_COMMAND
+	h.cmdidx++
+	h.cmdbuf[h.cmdidx] = STLINK_APIV3_GET_COM_FREQ
+	h.cmdidx++
+
+	if is_jtag {
+		h.cmdbuf[h.cmdidx] = 1
+	} else {
+		h.cmdbuf[h.cmdidx] = 0
+	}
+	h.cmdidx++
+
+	err := h.stlink_xfer_errcheck(h.databuf, 52)
+
+	var size int = int(h.databuf[8])
+
+	if size > STLINK_V3_MAX_FREQ_NB {
+		size = STLINK_V3_MAX_FREQ_NB
+	}
+
+	for i := 0; i < size; i++ {
+		(*smap)[i].speed = int(le_to_h_u32(h.databuf[12+4*i:]))
+		(*smap)[i].speed_divisor = i
+	}
+
+	// set to zero all the next entries
+	for i := size; i < STLINK_V3_MAX_FREQ_NB; i++ {
+		(*smap)[i].speed = 0
+	}
+
+	if err == ERROR_OK {
+		return nil
+	} else {
+		return errors.New("Got error check fail")
+	}
+}
+
+func (h *StLinkHandle) stlink_set_com_freq(is_jtag bool, frequency int) error {
+
+	if h.version.jtag_api != STLINK_JTAG_API_V3 {
+		return errors.New("Unknown command")
+	}
+
+	h.stlink_init_buffer(h.rx_ep, 16)
+
+	h.cmdbuf[h.cmdidx] = STLINK_DEBUG_COMMAND
+	h.cmdidx++
+	h.cmdbuf[h.cmdidx] = STLINK_APIV3_SET_COM_FREQ
+	h.cmdidx++
+
+	if is_jtag {
+		h.cmdbuf[h.cmdidx] = 1
+	} else {
+		h.cmdbuf[h.cmdidx] = 0
+	}
+	h.cmdidx++
+
+	h.cmdbuf[h.cmdidx] = 0
+	h.cmdidx++
+
+	h_u32_to_le(h.cmdbuf[4:], frequency)
+
+	err := h.stlink_xfer_errcheck(h.databuf, 8)
+
+	if err == ERROR_OK {
+		return nil
+	} else {
+		return errors.New("Got error check fail")
+	}
+}
+
+func stlink_match_speed_map(smap []speed_map, khz int, query bool) (int, error) {
+	var last_valid_speed int = -1
+	var speed_index = -1
+	var speed_diff = math.MaxInt32
+	var match bool = false
+	var counter int = 0
+
+	for i, s := range smap {
+		counter = i
+		if s.speed == 0 {
+			continue
+		}
+
+		last_valid_speed = i
+		if khz == s.speed {
+			speed_index = i
+			break
+		} else {
+			var current_diff = khz - s.speed
+
+			//get abs value for comparison
+			if current_diff <= 0 {
+				current_diff = -current_diff
+			}
+
+			if (current_diff < speed_diff) && khz >= s.speed {
+				speed_diff = current_diff
+				speed_index = i
+			}
+		}
+	}
+
+	if speed_index == -1 {
+		// this will only be here if we cannot match the slow speed.
+		// use the slowest speed we support.
+		speed_index = last_valid_speed
+		match = false
+	} else if counter == len(smap) {
+		match = false
+	}
+
+	if !match && query {
+		return -1, errors.New(fmt.Sprintf("Unable to match requested speed %d kHz, using %d kHz",
+			khz, smap[speed_index].speed))
+	}
+
+	return speed_index, nil
+}
+
+func stlink_dump_speed_map(smap []speed_map) {
+	for i := range smap {
+		if smap[i].speed > 0 {
+			log.Debugf("%d kHz", smap[i].speed)
+		}
 	}
 }
