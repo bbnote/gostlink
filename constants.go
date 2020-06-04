@@ -227,38 +227,6 @@ const (
 	MAX_WAIT_RETRIES         = 8
 )
 
-/* SWD clock speed */
-type speed_map struct {
-	speed         int
-	speed_divisor int
-}
-
-var stlink_khz_to_speed_map_swd = [...]speed_map{
-	{4000, 0},
-	{1800, 1}, /* default */
-	{1200, 2},
-	{950, 3},
-	{480, 7},
-	{240, 15},
-	{125, 31},
-	{100, 40},
-	{50, 79},
-	{25, 158},
-	{15, 265},
-	{5, 798},
-}
-
-/* JTAG clock speed */
-var stlink_khz_to_speed_map_jtag = [...]speed_map{
-	{9000, 4},
-	{4500, 8},
-	{2250, 16},
-	{1125, 32}, /* default */
-	{562, 64},
-	{281, 128},
-	{140, 256},
-}
-
 const (
 	ERROR_OK   = 0
 	ERROR_WAIT = -1
