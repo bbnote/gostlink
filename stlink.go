@@ -75,24 +75,52 @@ type StLinkHandle struct {
 	reconnect_pending bool
 }
 
-func NewStLink(vid gousb.ID, pid gousb.ID, serial_no string, mode StLinkMode) (*StLinkHandle, error) {
+type StLinkInterfaceConfig struct {
+	vid                 gousb.ID
+	pid                 gousb.ID
+	mode                StLinkMode
+	serial              string
+	initial_speed       int
+	connect_under_reset bool
+}
+
+func NewStLinkConfig(vid gousb.ID, pid gousb.ID, mode StLinkMode,
+	serial string, initial_speed int, connect_under_reset bool) *StLinkInterfaceConfig {
+
+	config := &StLinkInterfaceConfig{
+		vid:                 vid,
+		pid:                 pid,
+		mode:                mode,
+		serial:              serial,
+		initial_speed:       initial_speed,
+		connect_under_reset: connect_under_reset,
+	}
+
+	return config
+}
+
+func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 	var err error
 	var devices []*gousb.Device
 
 	handle := &StLinkHandle{}
-	handle.st_mode = mode
+	handle.st_mode = config.mode
 
-	if vid == STLINK_ALL_VIDS && pid == STLINK_ALL_PIDS {
+	// initialize data buffers for tx and rx
+	handle.cmdbuf = make([]byte, STLINK_SG_SIZE)
+	handle.databuf = make([]byte, STLINK_DATA_SIZE)
+
+	if config.vid == STLINK_ALL_VIDS && config.pid == STLINK_ALL_PIDS {
 		devices, err = usb_find_devices(stlink_supported_vids, stlink_supported_pids)
 
-	} else if vid == STLINK_ALL_VIDS && pid != STLINK_ALL_PIDS {
-		devices, err = usb_find_devices(stlink_supported_vids, []gousb.ID{pid})
+	} else if config.vid == STLINK_ALL_VIDS && config.pid != STLINK_ALL_PIDS {
+		devices, err = usb_find_devices(stlink_supported_vids, []gousb.ID{config.pid})
 
-	} else if vid != STLINK_ALL_VIDS && pid == STLINK_ALL_PIDS {
-		devices, err = usb_find_devices([]gousb.ID{vid}, stlink_supported_pids)
+	} else if config.vid != STLINK_ALL_VIDS && config.pid == STLINK_ALL_PIDS {
+		devices, err = usb_find_devices([]gousb.ID{config.vid}, stlink_supported_pids)
 
 	} else {
-		devices, err = usb_find_devices([]gousb.ID{vid}, []gousb.ID{pid})
+		devices, err = usb_find_devices([]gousb.ID{config.vid}, []gousb.ID{config.pid})
 	}
 
 	if err != nil {
@@ -101,7 +129,7 @@ func NewStLink(vid gousb.ID, pid gousb.ID, serial_no string, mode StLinkMode) (*
 
 	if len(devices) > 0 {
 
-		if serial_no == "" && len(devices) > 1 {
+		if config.serial == "" && len(devices) > 1 {
 			return nil, errors.New("Could not idendify exact stlink by given paramters. (Perhaps a serial no is missing?)")
 		} else if len(devices) == 1 {
 			handle.usb_device = devices[0]
@@ -109,9 +137,9 @@ func NewStLink(vid gousb.ID, pid gousb.ID, serial_no string, mode StLinkMode) (*
 			for _, dev := range devices {
 				dev_serial_no, _ := dev.SerialNumber()
 
-				log.Debugf("Compare serial no %s with number %s", dev_serial_no, serial_no)
+				log.Debugf("Compare serial no %s with number %s", dev_serial_no, config.serial)
 
-				if dev_serial_no == serial_no {
+				if dev_serial_no == config.serial {
 					handle.usb_device = dev
 
 					log.Infof("Found st link with serial number %s", dev_serial_no)
@@ -164,11 +192,56 @@ func NewStLink(vid gousb.ID, pid gousb.ID, serial_no string, mode StLinkMode) (*
 		handle.trace_ep = STLINK_TRACE_EP
 	}
 
-	// initialize data buffers for tx and rx
-	handle.cmdbuf = make([]byte, STLINK_SG_SIZE)
-	handle.databuf = make([]byte, STLINK_DATA_SIZE)
+	err = handle.usb_parse_version()
 
-	handle.usb_parse_version()
+	if err != nil {
+		return nil, err
+	}
+
+	switch handle.st_mode {
+	case STLINK_MODE_DEBUG_SWD:
+		if handle.version.jtag_api == STLINK_JTAG_API_V1 {
+			return nil, errors.New("SWD not supported by jtag api v1")
+		}
+	case STLINK_MODE_DEBUG_JTAG:
+		if handle.version.jtag == 0 {
+			return nil, errors.New("JTAG transport not supported by stlink")
+		}
+	case STLINK_MODE_DEBUG_SWIM:
+		if handle.version.swim == 0 {
+			return nil, errors.New("Swim transport not supported by device")
+		}
+
+	default:
+		return nil, errors.New("Unknown ST-Link mode")
+	}
+
+	err = handle.usb_init_mode(config.connect_under_reset, config.initial_speed)
+
+	if err != nil {
+		return nil, err
+	}
+
+	/** TODO: Implement SWIM mode configuration
+	if (h->st_mode == STLINK_MODE_DEBUG_SWIM) {
+		err = stlink_swim_enter(h);
+		if (err != ERROR_OK) {
+			LOG_ERROR("stlink_swim_enter_failed (unable to connect to the target)");
+			goto error_open;
+		}
+		*fd = h;
+		h->max_mem_packet = STLINK_DATA_SIZE;
+		return ERROR_OK;
+	}
+	*/
+
+	handle.max_mem_packet = (1 << 10)
+
+	err = handle.usb_init_access_port(0)
+
+	if err != nil {
+		return nil, err
+	}
 
 	return handle, nil
 }

@@ -225,6 +225,7 @@ const (
 const (
 	STLINK_F_HAS_TARGET_VOLT = STLINK_F_HAS_TRACE
 	MAX_WAIT_RETRIES         = 8
+	DP_APSEL_MAX             = 255
 )
 
 const (

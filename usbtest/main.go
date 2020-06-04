@@ -18,7 +18,10 @@ func main() {
 		log.Panic(err)
 	}
 
-	stlink, err := gostlink.NewStLink(gostlink.STLINK_ALL_VIDS, gostlink.STLINK_ALL_PIDS, "", gostlink.STLINK_MODE_DEBUG_SWD)
+	config := gostlink.NewStLinkConfig(gostlink.STLINK_ALL_VIDS, gostlink.STLINK_ALL_PIDS, gostlink.STLINK_MODE_DEBUG_SWD,
+		"", 24000, false)
+
+	stlink, err := gostlink.NewStLink(config)
 
 	if stlink != nil {
 		log.Info("Found ST-Link on your computer! :)")

@@ -111,7 +111,7 @@ func (h *StLinkHandle) usb_set_swdclk(clk_divisor uint16) error {
 func (h *StLinkHandle) usb_get_com_freq(is_jtag bool, smap *[]speed_map) error {
 
 	if h.version.jtag_api != STLINK_JTAG_API_V3 {
-		errors.New("Unknown command")
+		return errors.New("Unknown command")
 	}
 
 	h.usb_init_buffer(h.rx_ep, 16)
