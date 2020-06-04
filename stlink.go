@@ -243,6 +243,21 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 		return nil, err
 	}
 
+	buffer := make([]byte, 4)
+	err_code, err := handle.usb_read_mem32(CPUID, 4, buffer)
+
+	if err_code == ERROR_OK {
+		var cpuid uint32 = le_to_h_u32(buffer)
+		var i uint32 = (cpuid >> 4) & 0xf
+
+		if i == 4 || i == 3 {
+			/* Cortex-M3/M4 has 4096 bytes autoincrement range */
+			handle.max_mem_packet = (1 << 12)
+		}
+	}
+
+	log.Debugf("Using TAR autoincrement: %d", handle.max_mem_packet)
+
 	return handle, nil
 }
 

@@ -2,6 +2,13 @@ package gostlink
 
 import log "github.com/sirupsen/logrus"
 
+const (
+	ERROR_OK                      = 0
+	ERROR_WAIT                    = -1
+	ERROR_FAIL                    = -2
+	ERROR_TARGET_UNALIGNED_ACCESS = -3
+)
+
 /**
   Converts an STLINK status code held in the first byte of a response
   to an openocd error, logs any error/wait status as debug output.

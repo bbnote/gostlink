@@ -1,3 +1,12 @@
+// Copyright 2020 Sebastian Lehmann. All rights reserved.
+// Use of this source code is governed by a GNU-style
+// license that can be found in the LICENSE file.
+
+// this code is mainly inspired and based on the openocd project source code
+// for detailed information see
+
+// https://sourceforge.net/p/openocd/code
+
 package gostlink
 
 import (
@@ -189,5 +198,29 @@ func (h *StLinkHandle) usb_xfer_v1_get_sense() error {
 	} else {
 		err := h.usb_xfer_v1_get_status()
 		return err
+	}
+}
+
+func (h *StLinkHandle) usb_get_rw_status() int {
+
+	if h.version.jtag_api == STLINK_JTAG_API_V1 {
+		return ERROR_OK
+	}
+
+	h.usb_init_buffer(h.rx_ep, 2)
+
+	h.cmdbuf[h.cmdidx] = STLINK_DEBUG_COMMAND
+	h.cmdidx++
+
+	if (h.version.flags & STLINK_F_HAS_GETLASTRWSTATUS2) != 0 {
+		h.cmdbuf[h.cmdidx] = STLINK_DEBUG_APIV2_GETLASTRWSTATUS2
+		h.cmdidx++
+
+		return h.usb_xfer_errcheck(h.databuf, 12)
+	} else {
+		h.cmdbuf[h.cmdidx] = STLINK_DEBUG_APIV2_GETLASTRWSTATUS
+		h.cmdidx++
+
+		return h.usb_xfer_errcheck(h.databuf, 2)
 	}
 }

@@ -226,10 +226,5 @@ const (
 	STLINK_F_HAS_TARGET_VOLT = STLINK_F_HAS_TRACE
 	MAX_WAIT_RETRIES         = 8
 	DP_APSEL_MAX             = 255
-)
-
-const (
-	ERROR_OK   = 0
-	ERROR_WAIT = -1
-	ERROR_FAIL = -2
+	CPUID                    = 0xE000ED00
 )
