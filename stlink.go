@@ -37,6 +37,11 @@ type StLinkVersion struct {
 	flags uint32
 }
 
+type StLinkTrace struct {
+	enabled  bool
+	sourceHz uint32
+}
+
 /** */
 type StLinkHandle struct {
 	/** */
@@ -66,6 +71,8 @@ type StLinkHandle struct {
 	/** */
 	version StLinkVersion
 
+	trace StLinkTrace
+
 	/** */
 	vid gousb.ID
 	/** */
@@ -80,12 +87,12 @@ type StLinkInterfaceConfig struct {
 	pid                 gousb.ID
 	mode                StLinkMode
 	serial              string
-	initial_speed       int
+	initial_speed       uint32
 	connect_under_reset bool
 }
 
 func NewStLinkConfig(vid gousb.ID, pid gousb.ID, mode StLinkMode,
-	serial string, initial_speed int, connect_under_reset bool) *StLinkInterfaceConfig {
+	serial string, initial_speed uint32, connect_under_reset bool) *StLinkInterfaceConfig {
 
 	config := &StLinkInterfaceConfig{
 		vid:                 vid,
@@ -235,7 +242,7 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 	}
 	*/
 
-	handle.max_mem_packet = (1 << 10)
+	handle.max_mem_packet = 1 << 10
 
 	err = handle.usb_init_access_port(0)
 
@@ -244,7 +251,7 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 	}
 
 	buffer := make([]byte, 4)
-	err_code := handle.usb_read_mem32(CPUID_BASE_REGISTER, uint32(4), buffer)
+	err_code := handle.usbReadMem32(CPUID_BASE_REGISTER, uint16(4), buffer)
 
 	if err_code == ERROR_OK {
 		var cpuid uint32 = le_to_h_u32(buffer)
@@ -310,7 +317,7 @@ func (h *StLinkHandle) GetIdCode() uint32 {
 
 	buffer := make([]byte, 1)
 
-	ret := h.usb_read_mem(0xE0042000, 4, 1, buffer)
+	ret := h.usbReadMem(0xE0042000, 4, 1, buffer)
 
 	log.Debugf("Got return code: %d", ret)
 
@@ -506,7 +513,7 @@ func (h *StLinkHandle) usb_parse_version() error {
 	return nil
 }
 
-func (h *StLinkHandle) stlink_speed(khz int, query bool) (int, error) {
+func (h *StLinkHandle) SetSpeed(khz uint32, query bool) (uint32, error) {
 
 	switch h.st_mode {
 	/*case STLINK_MODE_DEBUG_SWIM:
@@ -515,9 +522,9 @@ func (h *StLinkHandle) stlink_speed(khz int, query bool) (int, error) {
 
 	case STLINK_MODE_DEBUG_SWD:
 		if h.version.jtag_api == STLINK_JTAG_API_V3 {
-			return h.set_speed_v3(false, khz, query)
+			return h.setSpeedV3(false, khz, query)
 		} else {
-			return h.set_speed_swd(khz, query)
+			return h.setSpeedSwd(khz, query)
 		}
 
 	/*case STLINK_MODE_DEBUG_JTAG:

@@ -29,6 +29,10 @@ func main() {
 		log.Error("Could not find any st-link on your computer")
 	}
 
+	code := stlink.GetIdCode()
+
+	log.Infof("Got id code: %d", code)
+
 	stlink.Close()
 	gostlink.CloseUSB()
 }

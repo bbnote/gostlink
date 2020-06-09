@@ -90,7 +90,7 @@ func (h *StLinkHandle) usb_current_mode() (byte, error) {
 	}
 }
 
-func (h *StLinkHandle) usb_init_mode(connect_under_reset bool, initial_interface_speed int) error {
+func (h *StLinkHandle) usb_init_mode(connect_under_reset bool, initial_interface_speed uint32) error {
 
 	mode, err := h.usb_current_mode()
 
@@ -158,22 +158,22 @@ func (h *StLinkHandle) usb_init_mode(connect_under_reset bool, initial_interface
 
 	if stlink_mode == STLINK_MODE_DEBUG_JTAG {
 		if (h.version.flags & STLINK_F_HAS_JTAG_SET_FREQ) != 0 {
-			stlink_dump_speed_map(stlink_khz_to_speed_map_jtag[:])
-			h.stlink_speed(initial_interface_speed, false)
+			dumpSpeedMap(JTAGkHzToSpeedMap[:])
+			h.SetSpeed(initial_interface_speed, false)
 		}
 	} else if stlink_mode == STLINK_MODE_DEBUG_SWD {
 		if (h.version.flags & STLINK_F_HAS_JTAG_SET_FREQ) != 0 {
-			stlink_dump_speed_map(stlink_khz_to_speed_map_swd[:])
-			h.stlink_speed(initial_interface_speed, false)
+			dumpSpeedMap(SWDkHzToSpeedMap[:])
+			h.SetSpeed(initial_interface_speed, false)
 		}
 	}
 
 	if h.version.jtag_api == STLINK_JTAG_API_V3 {
-		var smap = make([]speed_map, STLINK_V3_MAX_FREQ_NB)
+		var smap = make([]speedMap, STLINK_V3_MAX_FREQ_NB)
 
-		h.usb_get_com_freq(stlink_mode == STLINK_MODE_DEBUG_JTAG, &smap)
-		stlink_dump_speed_map(smap)
-		h.stlink_speed(initial_interface_speed, false)
+		h.usbGetComFreq(stlink_mode == STLINK_MODE_DEBUG_JTAG, &smap)
+		dumpSpeedMap(smap)
+		h.SetSpeed(initial_interface_speed, false)
 	}
 
 	// preliminary SRST assert:
