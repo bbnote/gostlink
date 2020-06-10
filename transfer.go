@@ -11,11 +11,12 @@ package gostlink
 
 import (
 	"errors"
+	"fmt"
 
 	log "github.com/sirupsen/logrus"
 )
 
-func (h *StLinkHandle) usb_init_buffer(direction byte, size uint32) {
+func (h *StLinkHandle) usbInitBuffer(direction byte, size uint32) {
 	h.direction = direction
 	h.cmdidx = 0
 
@@ -23,32 +24,32 @@ func (h *StLinkHandle) usb_init_buffer(direction byte, size uint32) {
 	memset(h.databuf, STLINK_DATA_SIZE, 0)
 
 	if h.version.stlink == 1 {
-		h.usb_xfer_v1_create_cmd(direction, size)
+		h.usbTransferV1CreateCmd(direction, size)
 	}
 }
 
-func (h *StLinkHandle) usb_xfer_noerrcheck(buffer []byte, size uint32) error {
-	var cmdsize int = STLINK_CMD_SIZE_V2
+func (h *StLinkHandle) usbTransferNoErrCheck(buffer []byte, size uint32) error {
+	var cmdSize int = STLINK_CMD_SIZE_V2
 
 	if h.version.stlink == 1 {
-		cmdsize = STLINK_SG_SIZE
+		cmdSize = STLINK_SG_SIZE
 		h.cmdbuf[14] = h.cmdidx - 15
 	}
 
-	err := h.usb_xfer_rw(cmdsize, buffer, size)
+	err := h.usbTransferReadWrite(cmdSize, buffer, size)
 
 	if err != nil {
 		return err
 	}
 
 	if h.version.stlink == 1 {
-		err := h.usb_xfer_v1_get_status()
+		err := h.usbTransferV1GetStatus()
 
 		if err == nil {
 			if h.cmdbuf[12] == 1 {
 				log.Debug("Check sense")
 
-				err = h.usb_xfer_v1_get_sense()
+				err = h.usbTransferV1GetSense()
 				if err != nil {
 					return err
 				}
@@ -59,34 +60,33 @@ func (h *StLinkHandle) usb_xfer_noerrcheck(buffer []byte, size uint32) error {
 	return nil
 }
 
-func (h *StLinkHandle) usb_xfer_errcheck(buffer []byte, size uint32) int {
+func (h *StLinkHandle) usbTransferErrCheck(buffer []byte, size uint32) error {
 
-	err := h.usb_xfer_noerrcheck(buffer, size)
+	err := h.usbTransferNoErrCheck(buffer, size)
 
 	if err != nil {
-		log.Error(err)
-		return ERROR_FAIL
+		return err
 	}
 
-	return h.usb_error_check()
+	return h.usbErrorCheck()
 }
 
-func (h *StLinkHandle) usb_xfer_rw(cmdsize int, buffer []byte, size uint32) error {
+func (h *StLinkHandle) usbTransferReadWrite(cmdSize int, buffer []byte, size uint32) error {
 	// write command buffer to tx_ep
 	outP, err := h.usb_interface.OutEndpoint(int(h.tx_ep))
 
 	if err != nil {
-		return errors.New("Could not open out endpoint")
+		return errors.New(fmt.Sprintf("could not open out endpoint #%d", int(h.tx_ep)))
 	}
 
-	_, err = usb_write(outP, h.cmdbuf[:cmdsize])
+	_, err = usbWrite(outP, h.cmdbuf[:cmdSize])
 
 	if err != nil {
 		return err
 	}
 
 	if h.direction == h.tx_ep && size > 0 {
-		_, err = usb_write(outP, buffer[:size])
+		_, err = usbWrite(outP, buffer[:size])
 
 		if err != nil {
 			return err
@@ -97,10 +97,10 @@ func (h *StLinkHandle) usb_xfer_rw(cmdsize int, buffer []byte, size uint32) erro
 		inP, err := h.usb_interface.InEndpoint(int(h.rx_ep))
 
 		if err != nil {
-			return errors.New("Could not get in endpoint")
+			return errors.New(fmt.Sprintf("could not open in endpoint #%d", int(h.rx_ep)))
 		}
 
-		_, err = usb_read(inP, buffer)
+		_, err = usbRead(inP, buffer)
 
 		if err != nil {
 			return err
@@ -110,7 +110,7 @@ func (h *StLinkHandle) usb_xfer_rw(cmdsize int, buffer []byte, size uint32) erro
 	return nil
 }
 
-func (h *StLinkHandle) usb_xfer_v1_create_cmd(direction uint8, size uint32) {
+func (h *StLinkHandle) usbTransferV1CreateCmd(direction uint8, size uint32) {
 	h.cmdbuf[0] = 'U'
 	h.cmdbuf[1] = 'S'
 	h.cmdbuf[2] = 'B'
@@ -139,20 +139,18 @@ func (h *StLinkHandle) usb_xfer_v1_create_cmd(direction uint8, size uint32) {
 	h.cmdidx++
 }
 
-func (h *StLinkHandle) usb_xfer_v1_get_status() error {
+func (h *StLinkHandle) usbTransferV1GetStatus() error {
 	memset(h.cmdbuf, STLINK_SG_SIZE, 0)
 
-	in_endpoint, err := h.usb_interface.InEndpoint(int(h.rx_ep))
+	inEndpoint, err := h.usb_interface.InEndpoint(int(h.rx_ep))
 
 	if err != nil {
 		return err
 	}
 
-	var b_read int = 0
+	bytesRead, err := usbRead(inEndpoint, h.cmdbuf)
 
-	b_read, err = usb_read(in_endpoint, h.cmdbuf)
-
-	if err != nil || b_read != 13 {
+	if err != nil || bytesRead != 13 {
 		return errors.New("ST-Link V1 status read error")
 	}
 
@@ -160,7 +158,7 @@ func (h *StLinkHandle) usb_xfer_v1_get_status() error {
 
 	/* check for USBS */
 	if t1 != 0x53425355 {
-		return errors.New("No USBS")
+		return errors.New("ST-Link USBS check error")
 	}
 
 	/*
@@ -170,16 +168,15 @@ func (h *StLinkHandle) usb_xfer_v1_get_status() error {
 	 * 2 phase error
 	 */
 	if h.cmdbuf[12] != 0 {
-		log.Errorf("Got CSW status: %d", h.cmdbuf[12])
-		return errors.New("GOT CSW status error")
+		return errors.New(fmt.Sprintf("got CSW status error %d", h.cmdbuf[12]))
 	}
 
 	return nil
 }
 
-func (h *StLinkHandle) usb_xfer_v1_get_sense() error {
+func (h *StLinkHandle) usbTransferV1GetSense() error {
 
-	h.usb_init_buffer(h.rx_ep, 16)
+	h.usbInitBuffer(h.rx_ep, 16)
 
 	h.cmdbuf[h.cmdidx] = REQUEST_SENSE
 	h.cmdidx++
@@ -191,23 +188,22 @@ func (h *StLinkHandle) usb_xfer_v1_get_sense() error {
 	h.cmdidx++
 	h.cmdbuf[h.cmdidx] = REQUEST_SENSE_LENGTH
 
-	err := h.usb_xfer_rw(REQUEST_SENSE_LENGTH, h.databuf, 16)
+	err := h.usbTransferReadWrite(REQUEST_SENSE_LENGTH, h.databuf, 16)
 
 	if err != nil {
 		return err
 	} else {
-		err := h.usb_xfer_v1_get_status()
-		return err
+		return h.usbTransferV1GetStatus()
 	}
 }
 
-func (h *StLinkHandle) usb_get_rw_status() int {
+func (h *StLinkHandle) usbGetReadWriteStatus() error {
 
 	if h.version.jtag_api == STLINK_JTAG_API_V1 {
-		return ERROR_OK
+		return nil
 	}
 
-	h.usb_init_buffer(h.rx_ep, 2)
+	h.usbInitBuffer(h.rx_ep, 2)
 
 	h.cmdbuf[h.cmdidx] = STLINK_DEBUG_COMMAND
 	h.cmdidx++
@@ -216,11 +212,11 @@ func (h *StLinkHandle) usb_get_rw_status() int {
 		h.cmdbuf[h.cmdidx] = STLINK_DEBUG_APIV2_GETLASTRWSTATUS2
 		h.cmdidx++
 
-		return h.usb_xfer_errcheck(h.databuf, 12)
+		return h.usbTransferErrCheck(h.databuf, 12)
 	} else {
 		h.cmdbuf[h.cmdidx] = STLINK_DEBUG_APIV2_GETLASTRWSTATUS
 		h.cmdidx++
 
-		return h.usb_xfer_errcheck(h.databuf, 2)
+		return h.usbTransferErrCheck(h.databuf, 2)
 	}
 }

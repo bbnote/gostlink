@@ -16,19 +16,19 @@ import (
 )
 
 /** */
-func (h *StLinkHandle) usb_mode_enter(st_mode StLinkMode) error {
-	var rx_size uint32 = 0
+func (h *StLinkHandle) usbModeEnter(stMode StLinkMode) error {
+	var rxSize uint32 = 0
 	/* on api V2 we are able the read the latest command
 	 * status
 	 * TODO: we need the test on api V1 too
 	 */
 	if h.version.jtag_api != STLINK_JTAG_API_V1 {
-		rx_size = 2
+		rxSize = 2
 	}
 
-	h.usb_init_buffer(h.rx_ep, rx_size)
+	h.usbInitBuffer(h.rx_ep, rxSize)
 
-	switch st_mode {
+	switch stMode {
 	case STLINK_MODE_DEBUG_JTAG:
 		h.cmdbuf[h.cmdidx] = STLINK_DEBUG_COMMAND
 		h.cmdidx++
@@ -64,24 +64,24 @@ func (h *StLinkHandle) usb_mode_enter(st_mode StLinkMode) error {
 		h.cmdidx++
 
 		/* swim enter does not return any response or status */
-		return h.usb_xfer_noerrcheck(h.databuf, 0)
+		return h.usbTransferNoErrCheck(h.databuf, 0)
 	case STLINK_MODE_DFU:
 	case STLINK_MODE_MASS:
 	default:
-		return errors.New("Cannot set usb mode from DFU or mass stlink configuration")
+		return errors.New("cannot set usb mode from DFU or mass stlink configuration")
 	}
 
-	return h.usb_cmd_allow_retry(h.databuf, rx_size)
+	return h.usbCmdAllowRetry(h.databuf, rxSize)
 }
 
-func (h *StLinkHandle) usb_current_mode() (byte, error) {
+func (h *StLinkHandle) usbCurrentMode() (byte, error) {
 
-	h.usb_init_buffer(h.rx_ep, 2)
+	h.usbInitBuffer(h.rx_ep, 2)
 
 	h.cmdbuf[h.cmdidx] = STLINK_GET_CURRENT_MODE
 	h.cmdidx++
 
-	err := h.usb_xfer_noerrcheck(h.databuf, 2)
+	err := h.usbTransferNoErrCheck(h.databuf, 2)
 
 	if err != nil {
 		return 0, err
@@ -90,9 +90,9 @@ func (h *StLinkHandle) usb_current_mode() (byte, error) {
 	}
 }
 
-func (h *StLinkHandle) usb_init_mode(connect_under_reset bool, initial_interface_speed uint32) error {
+func (h *StLinkHandle) usbInitMode(connectUnderReset bool, initialInterfaceSpeed uint32) error {
 
-	mode, err := h.usb_current_mode()
+	mode, err := h.usbCurrentMode()
 
 	if err != nil {
 		log.Error("Could not get usb mode")
@@ -101,29 +101,30 @@ func (h *StLinkHandle) usb_init_mode(connect_under_reset bool, initial_interface
 
 	log.Debugf("Got usb mode: %d", mode)
 
-	var stlink_mode StLinkMode
+	var stLinkMode StLinkMode
 
 	switch mode {
 	case STLINK_DEV_DFU_MODE:
-		stlink_mode = STLINK_MODE_DFU
+		stLinkMode = STLINK_MODE_DFU
 
 	case STLINK_DEV_DEBUG_MODE:
-		stlink_mode = STLINK_MODE_DEBUG_SWD
+		stLinkMode = STLINK_MODE_DEBUG_SWD
 
 	case STLINK_DEV_SWIM_MODE:
-		stlink_mode = STLINK_MODE_DEBUG_SWIM
+		stLinkMode = STLINK_MODE_DEBUG_SWIM
 
 	case STLINK_DEV_BOOTLOADER_MODE, STLINK_DEV_MASS_MODE:
-		stlink_mode = STLINK_MODE_UNKNOWN
+		stLinkMode = STLINK_MODE_UNKNOWN
+
 	default:
-		stlink_mode = STLINK_MODE_UNKNOWN
+		stLinkMode = STLINK_MODE_UNKNOWN
 	}
 
-	if stlink_mode != STLINK_MODE_UNKNOWN {
-		h.usb_leave_mode(stlink_mode)
+	if stLinkMode != STLINK_MODE_UNKNOWN {
+		h.usbLeaveMode(stLinkMode)
 	}
 
-	mode, err = h.usb_current_mode()
+	mode, err = h.usbCurrentMode()
 
 	if err != nil {
 		log.Error("Could not get usb mode")
@@ -150,30 +151,30 @@ func (h *StLinkHandle) usb_init_mode(connect_under_reset bool, initial_interface
 
 	log.Debugf("MODE: 0x%02X", mode)
 
-	stlink_mode = h.st_mode
+	stLinkMode = h.st_mode
 
-	if stlink_mode == STLINK_MODE_UNKNOWN {
+	if stLinkMode == STLINK_MODE_UNKNOWN {
 		return errors.New("Selected mode (transport) not supported")
 	}
 
-	if stlink_mode == STLINK_MODE_DEBUG_JTAG {
+	if stLinkMode == STLINK_MODE_DEBUG_JTAG {
 		if (h.version.flags & STLINK_F_HAS_JTAG_SET_FREQ) != 0 {
 			dumpSpeedMap(JTAGkHzToSpeedMap[:])
-			h.SetSpeed(initial_interface_speed, false)
+			h.SetSpeed(initialInterfaceSpeed, false)
 		}
-	} else if stlink_mode == STLINK_MODE_DEBUG_SWD {
+	} else if stLinkMode == STLINK_MODE_DEBUG_SWD {
 		if (h.version.flags & STLINK_F_HAS_JTAG_SET_FREQ) != 0 {
 			dumpSpeedMap(SWDkHzToSpeedMap[:])
-			h.SetSpeed(initial_interface_speed, false)
+			h.SetSpeed(initialInterfaceSpeed, false)
 		}
 	}
 
 	if h.version.jtag_api == STLINK_JTAG_API_V3 {
 		var smap = make([]speedMap, STLINK_V3_MAX_FREQ_NB)
 
-		h.usbGetComFreq(stlink_mode == STLINK_MODE_DEBUG_JTAG, &smap)
+		h.usbGetComFreq(stLinkMode == STLINK_MODE_DEBUG_JTAG, &smap)
 		dumpSpeedMap(smap)
-		h.SetSpeed(initial_interface_speed, false)
+		h.SetSpeed(initialInterfaceSpeed, false)
 	}
 
 	// preliminary SRST assert:
@@ -182,27 +183,27 @@ func (h *StLinkHandle) usb_init_mode(connect_under_reset bool, initial_interface
 	//  Tested firmware STLINK v2 JTAG v29 API v2 SWIM v0 uses T_NRST pin by default
 	//  Tested firmware STLINK v2 JTAG v27 API v2 SWIM v6 uses T_NRST pin by default
 	//  after power on, SWIM_RST stays unchanged
-	if connect_under_reset && stlink_mode != STLINK_MODE_DEBUG_SWIM {
-		h.usb_assert_srst(0)
+	if connectUnderReset && stLinkMode != STLINK_MODE_DEBUG_SWIM {
+		h.usbAssertSrst(0)
 		// do not check the return status here, we will
 		//   proceed and enter the desired mode below
 		//   and try asserting srst again.
 	}
 
-	err = h.usb_mode_enter(stlink_mode)
+	err = h.usbModeEnter(stLinkMode)
 
 	if err != nil {
 		return err
 	}
 
-	if connect_under_reset {
-		err = h.usb_assert_srst(0)
+	if connectUnderReset {
+		err = h.usbAssertSrst(0)
 		if err != nil {
 			return err
 		}
 	}
 
-	mode, err = h.usb_current_mode()
+	mode, err = h.usbCurrentMode()
 
 	if err != nil {
 		return err
@@ -213,8 +214,8 @@ func (h *StLinkHandle) usb_init_mode(connect_under_reset bool, initial_interface
 	return nil
 }
 
-func (h *StLinkHandle) usb_leave_mode(mode StLinkMode) error {
-	h.usb_init_buffer(h.rx_ep, 0)
+func (h *StLinkHandle) usbLeaveMode(mode StLinkMode) error {
+	h.usbInitBuffer(h.rx_ep, 0)
 
 	switch mode {
 	case STLINK_MODE_DEBUG_JTAG, STLINK_MODE_DEBUG_SWD:
@@ -236,12 +237,12 @@ func (h *StLinkHandle) usb_leave_mode(mode StLinkMode) error {
 		h.cmdidx++
 
 	case STLINK_MODE_MASS:
-		return errors.New("Unknown stlink mode")
+		return errors.New("unknown stlink mode")
 	default:
-		return errors.New("Unknown stlink mode")
+		return errors.New("unknown stlink mode")
 	}
 
-	err := h.usb_xfer_noerrcheck(h.databuf, 0)
+	err := h.usbTransferNoErrCheck(h.databuf, 0)
 
 	return err
 }

@@ -159,7 +159,7 @@ func (h *StLinkHandle) usbSetSwdClk(clkDivisor uint16) error {
 		errors.New("cannot change speed on this firmware")
 	}
 
-	h.usb_init_buffer(h.rx_ep, 2)
+	h.usbInitBuffer(h.rx_ep, 2)
 
 	h.cmdbuf[h.cmdidx] = STLINK_DEBUG_COMMAND
 	h.cmdidx++
@@ -169,7 +169,7 @@ func (h *StLinkHandle) usbSetSwdClk(clkDivisor uint16) error {
 	uint16ToLittleEndian(h.cmdbuf[h.cmdidx:], clkDivisor)
 	h.cmdidx += 2
 
-	err := h.usb_cmd_allow_retry(h.databuf, 2)
+	err := h.usbCmdAllowRetry(h.databuf, 2)
 
 	return err
 }
@@ -180,7 +180,7 @@ func (h *StLinkHandle) usbGetComFreq(isJtag bool, smap *[]speedMap) error {
 		return errors.New("Unknown command")
 	}
 
-	h.usb_init_buffer(h.rx_ep, 16)
+	h.usbInitBuffer(h.rx_ep, 16)
 
 	h.cmdbuf[h.cmdidx] = STLINK_DEBUG_COMMAND
 	h.cmdidx++
@@ -194,7 +194,7 @@ func (h *StLinkHandle) usbGetComFreq(isJtag bool, smap *[]speedMap) error {
 	}
 	h.cmdidx++
 
-	err := h.usb_xfer_errcheck(h.databuf, 52)
+	err := h.usbTransferErrCheck(h.databuf, 52)
 
 	size := uint32(h.databuf[8])
 
@@ -212,11 +212,7 @@ func (h *StLinkHandle) usbGetComFreq(isJtag bool, smap *[]speedMap) error {
 		(*smap)[i].speed = 0
 	}
 
-	if err == ERROR_OK {
-		return nil
-	} else {
-		return errors.New("could not get com frequency")
-	}
+	return err
 }
 
 func (h *StLinkHandle) usbSetComFreq(isJtag bool, frequency uint32) error {
@@ -225,7 +221,7 @@ func (h *StLinkHandle) usbSetComFreq(isJtag bool, frequency uint32) error {
 		return errors.New("unknown command")
 	}
 
-	h.usb_init_buffer(h.rx_ep, 16)
+	h.usbInitBuffer(h.rx_ep, 16)
 
 	h.cmdbuf[h.cmdidx] = STLINK_DEBUG_COMMAND
 	h.cmdidx++
@@ -244,11 +240,7 @@ func (h *StLinkHandle) usbSetComFreq(isJtag bool, frequency uint32) error {
 
 	uint32ToLittleEndian(h.cmdbuf[4:], frequency)
 
-	err := h.usb_xfer_errcheck(h.databuf, 8)
+	err := h.usbTransferErrCheck(h.databuf, 8)
 
-	if err == ERROR_OK {
-		return nil
-	} else {
-		return errors.New("could not set com frequency of st-link")
-	}
+	return err
 }

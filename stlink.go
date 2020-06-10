@@ -11,11 +11,9 @@ package gostlink
 
 import (
 	"errors"
-	"fmt"
-	"time"
-
 	"github.com/google/gousb"
 	log "github.com/sirupsen/logrus"
+	"time"
 )
 
 const STLINK_ALL_VIDS = 0xFFFF
@@ -79,28 +77,28 @@ type StLinkHandle struct {
 	pid gousb.ID
 	/** reconnect is needed next time we try to query the
 	 * status */
-	reconnect_pending bool
+	reconnectPending bool
 }
 
 type StLinkInterfaceConfig struct {
-	vid                 gousb.ID
-	pid                 gousb.ID
-	mode                StLinkMode
-	serial              string
-	initial_speed       uint32
-	connect_under_reset bool
+	vid               gousb.ID
+	pid               gousb.ID
+	mode              StLinkMode
+	serial            string
+	initialSpeed      uint32
+	connectUnderReset bool
 }
 
 func NewStLinkConfig(vid gousb.ID, pid gousb.ID, mode StLinkMode,
-	serial string, initial_speed uint32, connect_under_reset bool) *StLinkInterfaceConfig {
+	serial string, initialSpeed uint32, connectUnderReset bool) *StLinkInterfaceConfig {
 
 	config := &StLinkInterfaceConfig{
-		vid:                 vid,
-		pid:                 pid,
-		mode:                mode,
-		serial:              serial,
-		initial_speed:       initial_speed,
-		connect_under_reset: connect_under_reset,
+		vid:               vid,
+		pid:               pid,
+		mode:              mode,
+		serial:            serial,
+		initialSpeed:      initialSpeed,
+		connectUnderReset: connectUnderReset,
 	}
 
 	return config
@@ -118,16 +116,16 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 	handle.databuf = make([]byte, STLINK_DATA_SIZE)
 
 	if config.vid == STLINK_ALL_VIDS && config.pid == STLINK_ALL_PIDS {
-		devices, err = usb_find_devices(stlink_supported_vids, stlink_supported_pids)
+		devices, err = usbFindDevices(stlink_supported_vids, stlink_supported_pids)
 
 	} else if config.vid == STLINK_ALL_VIDS && config.pid != STLINK_ALL_PIDS {
-		devices, err = usb_find_devices(stlink_supported_vids, []gousb.ID{config.pid})
+		devices, err = usbFindDevices(stlink_supported_vids, []gousb.ID{config.pid})
 
 	} else if config.vid != STLINK_ALL_VIDS && config.pid == STLINK_ALL_PIDS {
-		devices, err = usb_find_devices([]gousb.ID{config.vid}, stlink_supported_pids)
+		devices, err = usbFindDevices([]gousb.ID{config.vid}, stlink_supported_pids)
 
 	} else {
-		devices, err = usb_find_devices([]gousb.ID{config.vid}, []gousb.ID{config.pid})
+		devices, err = usbFindDevices([]gousb.ID{config.vid}, []gousb.ID{config.pid})
 	}
 
 	if err != nil {
@@ -137,42 +135,41 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 	if len(devices) > 0 {
 
 		if config.serial == "" && len(devices) > 1 {
-			return nil, errors.New("Could not idendify exact stlink by given paramters. (Perhaps a serial no is missing?)")
+			return nil, errors.New("could not identity exact stlink by given parameters. (Perhaps a serial no is missing?)")
 		} else if len(devices) == 1 {
 			handle.usb_device = devices[0]
 		} else {
 			for _, dev := range devices {
-				dev_serial_no, _ := dev.SerialNumber()
+				devSerialNo, _ := dev.SerialNumber()
 
-				log.Debugf("Compare serial no %s with number %s", dev_serial_no, config.serial)
+				log.Debugf("Compare serial no %s with number %s", devSerialNo, config.serial)
 
-				if dev_serial_no == config.serial {
+				if devSerialNo == config.serial {
 					handle.usb_device = dev
 
-					log.Infof("Found st link with serial number %s", dev_serial_no)
+					log.Infof("Found st link with serial number %s", devSerialNo)
 				}
 			}
 		}
 	} else {
-		return nil, errors.New("Could not find any ST-Link connected to computer.")
+		return nil, errors.New("could not find any ST-Link connected to computer")
 	}
 
 	if handle.usb_device == nil {
-		return nil, errors.New("Could not find ST-Link by given paramters")
+		return nil, errors.New("could not find ST-Link by given parameters")
 	}
 
 	// no request required configuration an matching usb interface :D
-
 	handle.usb_config, err = handle.usb_device.Config(1)
 	if err != nil {
 		log.Debug(err)
-		return nil, errors.New("Could not request configuration #0 for st-link debugger.")
+		return nil, errors.New("could not request configuration #1 for st-link debugger")
 	}
 
 	handle.usb_interface, err = handle.usb_config.Interface(0, 0)
 	if err != nil {
 		log.Debug(err)
-		return nil, errors.New("Could not claim interface 0,0 for st-link debugger.")
+		return nil, errors.New("could not claim interface 0,0 for st-link debugger")
 	}
 
 	handle.rx_ep = STLINK_RX_EP // Endpoint for rx is on all st links the same
@@ -199,7 +196,7 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 		handle.trace_ep = STLINK_TRACE_EP
 	}
 
-	err = handle.usb_parse_version()
+	err = handle.usbGetVersion()
 
 	if err != nil {
 		return nil, err
@@ -220,16 +217,17 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 		}
 
 	default:
-		return nil, errors.New("Unknown ST-Link mode")
+		return nil, errors.New("unknown ST-Link mode")
 	}
 
-	err = handle.usb_init_mode(config.connect_under_reset, config.initial_speed)
+	err = handle.usbInitMode(config.connectUnderReset, config.initialSpeed)
 
 	if err != nil {
 		return nil, err
 	}
 
-	/** TODO: Implement SWIM mode configuration
+	/**
+		TODO: Implement SWIM mode configuration
 	if (h->st_mode == STLINK_MODE_DEBUG_SWIM) {
 		err = stlink_swim_enter(h);
 		if (err != ERROR_OK) {
@@ -244,28 +242,27 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 
 	handle.max_mem_packet = 1 << 10
 
-	err = handle.usb_init_access_port(0)
+	err = handle.usbInitAccessPort(0)
 
 	if err != nil {
 		return nil, err
 	}
 
 	buffer := make([]byte, 4)
-	err_code := handle.usbReadMem32(CPUID_BASE_REGISTER, uint16(4), buffer)
+	errCode := handle.usbReadMem32(CPUID_BASE_REGISTER, 4, buffer)
 
-	if err_code == ERROR_OK {
+	if errCode == nil {
 		var cpuid uint32 = le_to_h_u32(buffer)
 		var i uint32 = (cpuid >> 4) & 0xf
 
 		if i == 4 || i == 3 {
 			/* Cortex-M3/M4 has 4096 bytes autoincrement range */
 			log.Debug("Set mem packet layout according to Cortex M3/M4")
-			handle.max_mem_packet = (1 << 12)
+			handle.max_mem_packet = 1 << 12
 		}
 	}
 
 	log.Debugf("Using TAR autoincrement: %d", handle.max_mem_packet)
-
 	return handle, nil
 }
 
@@ -280,237 +277,48 @@ func (h *StLinkHandle) Close() {
 }
 
 func (h *StLinkHandle) GetTargetVoltage() (float32, error) {
-	var adc_results [2]uint32
+	var adcResults [2]uint32
 
 	/* no error message, simply quit with error */
 	if (h.version.flags & STLINK_F_HAS_TARGET_VOLT) == 0 {
-		return -1.0, errors.New("Device does not support voltage measurement")
+		return -1.0, errors.New("device does not support voltage measurement")
 	}
 
-	h.usb_init_buffer(h.rx_ep, 8)
+	h.usbInitBuffer(h.rx_ep, 8)
 
 	h.cmdbuf[h.cmdidx] = STLINK_GET_TARGET_VOLTAGE
 	h.cmdidx++
 
-	err := h.usb_xfer_noerrcheck(h.databuf, 8)
+	err := h.usbTransferNoErrCheck(h.databuf, 8)
 
 	if err != nil {
 		return -1.0, err
 	}
 
 	/* convert result */
-	adc_results[0] = le_to_h_u32(h.databuf)
-	adc_results[1] = le_to_h_u32(h.databuf[4:])
+	adcResults[0] = le_to_h_u32(h.databuf)
+	adcResults[1] = le_to_h_u32(h.databuf[4:])
 
-	var target_voltage float32 = 0.0
+	var targetVoltage float32 = 0.0
 
-	if adc_results[0] > 0 {
-		target_voltage = 2 * (float32(adc_results[1]) * (1.2 / float32(adc_results[0])))
+	if adcResults[0] > 0 {
+		targetVoltage = 2 * (float32(adcResults[1]) * (1.2 / float32(adcResults[0])))
 	}
 
-	log.Infof("Target voltage: %f", target_voltage)
+	log.Infof("Target voltage: %f", targetVoltage)
 
-	return target_voltage, nil
+	return targetVoltage, nil
 }
 
 func (h *StLinkHandle) GetIdCode() uint32 {
 
 	buffer := make([]byte, 1)
 
-	ret := h.usbReadMem(0xE0042000, 4, 1, buffer)
+	ret := h.ReadMem(0xE0042000, 4, 1, buffer)
 
 	log.Debugf("Got return code: %d", ret)
 
 	return uint32(buffer[0])
-}
-
-func (h *StLinkHandle) usb_parse_version() error {
-	var v, x, y, jtag, swim, msd, bridge byte = 0, 0, 0, 0, 0, 0, 0
-
-	h.usb_init_buffer(h.rx_ep, 6)
-
-	h.cmdbuf[h.cmdidx] = STLINK_GET_VERSION
-	h.cmdidx++
-
-	err := h.usb_xfer_noerrcheck(h.databuf, 6)
-
-	if err != nil {
-		return err
-	}
-
-	version := be_to_h_u16(h.databuf)
-
-	v = byte((version >> 12) & 0x0f)
-	x = byte((version >> 6) & 0x3f)
-	y = byte(version & 0x3f)
-
-	h.vid = gousb.ID(le_to_h_u16(h.databuf[2:]))
-	h.pid = gousb.ID(le_to_h_u16(h.databuf[4:]))
-
-	switch h.pid {
-	case STLINK_V2_1_PID, STLINK_V2_1_NO_MSD_PID:
-		if (x <= 22 && y == 7) || (x >= 25 && y >= 7 && y <= 12) {
-			msd = x
-			swim = y
-			jtag = 0
-		} else {
-			jtag = x
-			msd = y
-			swim = 0
-		}
-
-	default:
-		jtag = x
-		msd = 0
-		swim = y
-	}
-
-	/* STLINK-V3 requires a specific command */
-	if v == 3 && x == 0 && y == 0 {
-		h.usb_init_buffer(h.rx_ep, 16)
-
-		h.cmdbuf[h.cmdidx] = STLINK_APIV3_GET_VERSION_EX
-		h.cmdidx++
-
-		err := h.usb_xfer_noerrcheck(h.databuf, 12)
-
-		if err != nil {
-			return err
-		}
-
-		v = h.databuf[0]
-		swim = h.databuf[1]
-		jtag = h.databuf[2]
-		msd = h.databuf[3]
-		bridge = h.databuf[4]
-		h.vid = gousb.ID(le_to_h_u16(h.databuf[8:]))
-		h.pid = gousb.ID(le_to_h_u16(h.databuf[10:]))
-	}
-
-	h.version.stlink = int(v)
-	h.version.jtag = int(jtag)
-	h.version.swim = int(swim)
-
-	var flags uint32 = 0
-
-	switch h.version.stlink {
-	case 1:
-		/* ST-LINK/V1 from J11 switch to api-v2 (and support SWD) */
-		if h.version.jtag >= 11 {
-			h.version.jtag_api = STLINK_JTAG_API_V2
-		} else {
-			h.version.jtag_api = STLINK_JTAG_API_V1
-		}
-	case 2:
-		/* all ST-LINK/V2 and ST-Link/V2.1 use api-v2 */
-		h.version.jtag_api = STLINK_JTAG_API_V2
-
-		/* API for trace from J13 */
-		/* API for target voltage from J13 */
-		if h.version.jtag >= 13 {
-			flags |= STLINK_F_HAS_TRACE
-		}
-
-		/* preferred API to get last R/W status from J15 */
-		if h.version.jtag >= 15 {
-			flags |= STLINK_F_HAS_GETLASTRWSTATUS2
-		}
-
-		/* API to set SWD frequency from J22 */
-		if h.version.jtag >= 22 {
-			flags |= STLINK_F_HAS_SWD_SET_FREQ
-		}
-
-		/* API to set JTAG frequency from J24 */
-		/* API to access DAP registers from J24 */
-		if h.version.jtag >= 24 {
-			flags |= STLINK_F_HAS_JTAG_SET_FREQ
-			flags |= STLINK_F_HAS_DAP_REG
-		}
-
-		/* Quirk for read DP in JTAG mode (V2 only) from J24, fixed in J32 */
-		if h.version.jtag >= 24 && h.version.jtag < 32 {
-			flags |= STLINK_F_QUIRK_JTAG_DP_READ
-		}
-
-		/* API to read/write memory at 16 bit from J26 */
-		if h.version.jtag >= 26 {
-			flags |= STLINK_F_HAS_MEM_16BIT
-		}
-
-		/* API required to init AP before any AP access from J28 */
-		if h.version.jtag >= 28 {
-			flags |= STLINK_F_HAS_AP_INIT
-		}
-
-		/* API required to return proper error code on close AP from J29 */
-		if h.version.jtag >= 29 {
-			flags |= STLINK_F_FIX_CLOSE_AP
-		}
-
-		/* Banked regs (DPv1 & DPv2) support from V2J32 */
-		if h.version.jtag >= 32 {
-			flags |= STLINK_F_HAS_DPBANKSEL
-		}
-	case 3:
-		/* all STLINK-V3 use api-v3 */
-		h.version.jtag_api = STLINK_JTAG_API_V3
-
-		/* STLINK-V3 is a superset of ST-LINK/V2 */
-
-		/* API for trace */
-		/* API for target voltage */
-		flags |= STLINK_F_HAS_TRACE
-
-		/* preferred API to get last R/W status */
-		flags |= STLINK_F_HAS_GETLASTRWSTATUS2
-
-		/* API to access DAP registers */
-		flags |= STLINK_F_HAS_DAP_REG
-
-		/* API to read/write memory at 16 bit */
-		flags |= STLINK_F_HAS_MEM_16BIT
-
-		/* API required to init AP before any AP access */
-		flags |= STLINK_F_HAS_AP_INIT
-
-		/* API required to return proper error code on close AP */
-		flags |= STLINK_F_FIX_CLOSE_AP
-
-		/* Banked regs (DPv1 & DPv2) support from V3J2 */
-		if h.version.jtag >= 2 {
-			flags |= STLINK_F_HAS_DPBANKSEL
-		}
-
-		/* 8bit read/write max packet size 512 bytes from V3J6 */
-		if h.version.jtag >= 6 {
-			flags |= STLINK_F_HAS_RW8_512BYTES
-		}
-	default:
-		break
-	}
-
-	h.version.flags = flags
-
-	var v_str string = fmt.Sprintf("V%d", v)
-
-	if jtag > 0 || msd != 0 {
-		v_str += fmt.Sprintf("J%d", jtag)
-	}
-
-	if msd > 0 {
-		v_str += fmt.Sprintf("M%d", msd)
-	}
-
-	if bridge > 0 {
-		v_str += fmt.Sprintf("B%d", bridge)
-	}
-
-	serial_no, _ := h.usb_device.SerialNumber()
-
-	log.Debugf("Got ST-Link: %s [%s]", v_str, serial_no)
-
-	return nil
 }
 
 func (h *StLinkHandle) SetSpeed(khz uint32, query bool) (uint32, error) {
@@ -535,98 +343,144 @@ func (h *StLinkHandle) SetSpeed(khz uint32, query bool) (uint32, error) {
 	}
 	*/
 	default:
-		return khz, errors.New("Requested ST-Link mode not supported yet!")
+		return khz, errors.New("requested ST-Link mode not supported yet")
 	}
 }
 
-/** Issue an STLINK command via USB transfer, with retries on any wait status responses.
+func (h *StLinkHandle) ConfigTrace(enabled bool, tpiuProtocol TpuiPinProtocolType, portSize uint32,
+	traceFreq *uint32, traceClkInFreq uint32, preScaler *uint16) error {
 
-  Works for commands where the STLINK_DEBUG status is returned in the first
-  byte of the response packet. For SWIM a SWIM_READSTATUS is requested instead.
+	if enabled == true && ((h.version.flags&STLINK_F_HAS_TRACE == 0) || tpiuProtocol != TpuiPinProtocolAsyncUart) {
+		return errors.New("the attached ST-Link version does not support this trace mode")
+	}
 
-  Returns an openocd result code.
-*/
-func (h *StLinkHandle) usb_cmd_allow_retry(buffer []byte, size uint32) error {
+	if !enabled {
+		h.usbTraceDisable()
+		return nil
+	}
+
+	if *traceFreq > STLINK_TRACE_MAX_HZ {
+		return errors.New("this ST-Link version does not support frequency")
+	}
+
+	h.usbTraceDisable()
+
+	if *traceFreq == 0 {
+		*traceFreq = STLINK_TRACE_MAX_HZ
+	}
+
+	presc := uint16(traceClkInFreq / *traceFreq)
+
+	if (traceClkInFreq % *traceFreq) > 0 {
+		presc++
+	}
+
+	if presc > TpuiAcprMaxSwoScaler {
+		return errors.New("SWO frequency is not suitable. Please choose a different")
+	}
+
+	*preScaler = presc
+	h.trace.sourceHz = *traceFreq
+
+	return h.usbTraceEnable()
+}
+
+func (h *StLinkHandle) ReadMem(addr uint32, size uint32, count uint32, buffer []byte) error {
+	var retErr error
+	var bytesRemaining uint32 = 0
 	var retries int = 0
+	var bufferPos uint32 = 0
 
-	for true {
-		if (h.st_mode != STLINK_MODE_DEBUG_SWIM) || retries > 0 {
-			err := h.usb_xfer_noerrcheck(buffer, size)
-			if err != nil {
-				return err
-			}
-		}
+	/* calculate byte count */
+	count *= size
 
-		/* TODO: Implement DEBUG swim!
-		if (h.st_mode == STLINK_MODE_DEBUG_SWIM) {
-			err = h.stlink_swim_status(handle);
-			if err != nil {
-				return err
-			}
-		}*/
+	/* switch to 8 bit if stlink does not support 16 bit memory read */
+	if size == 2 && ((h.version.flags & STLINK_F_HAS_MEM_16BIT) == 0) {
+		size = 1
+	}
 
-		err_code := h.usb_error_check()
+	for count > 0 {
 
-		if err_code == ERROR_WAIT && retries < MAX_WAIT_RETRIES {
-			var delay_us time.Duration = (1 << retries) * 1000
-
-			retries++
-			log.Debugf("stlink_cmd_allow_retry ERROR_WAIT, retry %d, delaying %u microseconds", retries, delay_us)
-			time.Sleep(delay_us * 1000)
-
-			continue
-		}
-
-		if err_code == ERROR_FAIL {
-			return errors.New("Got error during usb check")
+		if size != 1 {
+			bytesRemaining = h.maxBlockSize(h.max_mem_packet, addr)
 		} else {
-			return nil
+			bytesRemaining = h.usbBlock()
 		}
-	}
 
-	return errors.New("Invalid allow cmd retry state")
-}
-
-func (h *StLinkHandle) usb_assert_srst(srst byte) error {
-
-	/* TODO:
-		* Implement SWIM debugger
-	     *
-		if h.st_mode == STLINK_MODE_DEBUG_SWIM {
-			return stlink_swim_assert_reset(handle, srst);
+		if count < bytesRemaining {
+			bytesRemaining = count
 		}
-	*/
 
-	if h.version.stlink == 1 {
-		return errors.New("Could not find rsrt command on target")
+		/*
+		* all stlink support 8/32bit memory read/writes and only from
+		* stlink V2J26 there is support for 16 bit memory read/write.
+		* Honour 32 bit and, if possible, 16 bit too. Otherwise, handle
+		* as 8bit access.
+		 */
+		if size != 1 {
+			/* When in jtag mode the stlink uses the auto-increment functionality.
+			 	* However it expects us to pass the data correctly, this includes
+			 	* alignment and any page boundaries. We already do this as part of the
+			 	* adi_v5 implementation, but the stlink is a hla adapter and so this
+			 	* needs implementing manually.
+				 * currently this only affects jtag mode, according to ST they do single
+				 * access in SWD mode - but this may change and so we do it for both modes */
+
+			/* we first need to check for any unaligned bytes */
+			if (addr & (size - 1)) > 0 {
+				var headBytes = size - (addr & (size - 1))
+
+				err := h.usbReadMem8(addr, uint16(headBytes), buffer)
+
+				if err != nil {
+					usbError := err.(*UsbError)
+
+					if usbError.UsbErrorCode == ErrorWait && retries < MAX_WAIT_RETRIES {
+						var sleepDur time.Duration = 1 << retries
+						retries++
+
+						time.Sleep(sleepDur * 1000000)
+						continue
+					}
+
+					return err
+				}
+
+				bufferPos += headBytes
+				addr += headBytes
+				count -= headBytes
+				bytesRemaining -= headBytes
+			}
+
+			if (bytesRemaining & (size - 1)) > 0 {
+				retErr = h.ReadMem(addr, 1, bytesRemaining, buffer[:bufferPos])
+			} else if size == 2 {
+				retErr = h.usbReadMem16(addr, uint16(bytesRemaining), buffer[:bufferPos])
+			} else {
+				retErr = h.usbReadMem32(addr, uint16(bytesRemaining), buffer[:bufferPos])
+			}
+		} else {
+			retErr = h.usbReadMem8(addr, uint16(bytesRemaining), buffer[:bufferPos])
+		}
+
+		if retErr != nil {
+			usbError := retErr.(*UsbError)
+
+			if usbError.UsbErrorCode == ErrorWait && retries < MAX_WAIT_RETRIES {
+				var sleepDur time.Duration = 1 << retries
+				retries++
+
+				time.Sleep(sleepDur * 1000000)
+				continue
+			}
+
+			return retErr
+		}
+
+		bufferPos += bytesRemaining
+		addr += bytesRemaining
+		count -= bytesRemaining
 	}
 
-	h.usb_init_buffer(h.rx_ep, 2)
-
-	h.cmdbuf[h.cmdidx] = STLINK_DEBUG_COMMAND
-	h.cmdidx++
-	h.cmdbuf[h.cmdidx] = STLINK_DEBUG_APIV2_DRIVE_NRST
-	h.cmdidx++
-	h.cmdbuf[h.cmdidx] = srst
-	h.cmdidx++
-
-	return h.usb_cmd_allow_retry(h.databuf, 2)
-}
-
-func (h *StLinkHandle) max_block_size(tar_autoincr_block uint32, address uint32) uint32 {
-	var max_tar_block = (tar_autoincr_block - ((tar_autoincr_block - 1) & address))
-
-	if max_tar_block == 0 {
-		max_tar_block = 4
-	}
-
-	return max_tar_block
-}
-
-func (h *StLinkHandle) usb_block() uint32 {
-	if (h.version.flags & STLINK_F_HAS_RW8_512BYTES) > 0 {
-		return STLINKV3_MAX_RW8
-	} else {
-		return STLINK_MAX_RW8
-	}
+	return retErr
 }

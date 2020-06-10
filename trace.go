@@ -54,14 +54,14 @@ func (h *StLinkHandle) usbTraceDisable() error {
 
 	log.Debug("tracing: disable")
 
-	h.usb_init_buffer(h.rx_ep, 2)
+	h.usbInitBuffer(h.rx_ep, 2)
 	h.cmdbuf[h.cmdidx] = STLINK_DEBUG_COMMAND
 	h.cmdidx++
 	h.cmdbuf[h.cmdidx] = STLINK_DEBUG_APIV2_STOP_TRACE_RX
 
-	err := h.usb_xfer_errcheck(h.databuf, 2)
+	err := h.usbTransferErrCheck(h.databuf, 2)
 
-	if err == ERROR_OK {
+	if err == nil {
 		h.trace.enabled = false
 		return nil
 	} else {
@@ -72,7 +72,7 @@ func (h *StLinkHandle) usbTraceDisable() error {
 func (h *StLinkHandle) usbTraceEnable() error {
 
 	if h.version.flags&STLINK_F_HAS_TRACE != 0 {
-		h.usb_init_buffer(h.rx_ep, 10)
+		h.usbInitBuffer(h.rx_ep, 10)
 
 		h.cmdbuf[h.cmdidx] = STLINK_DEBUG_COMMAND
 		h.cmdidx++
@@ -85,9 +85,9 @@ func (h *StLinkHandle) usbTraceEnable() error {
 		uint32ToLittleEndian(h.cmdbuf[h.cmdidx:], h.trace.sourceHz)
 		h.cmdidx += 4
 
-		err := h.usb_xfer_errcheck(h.databuf, 2)
+		err := h.usbTransferErrCheck(h.databuf, 2)
 
-		if err == ERROR_OK {
+		if err == nil {
 			h.trace.enabled = true
 			log.Debugf("Tracing: recording at %d Hz", h.trace.sourceHz)
 
@@ -98,42 +98,4 @@ func (h *StLinkHandle) usbTraceEnable() error {
 	} else {
 		return errors.New("tracing not supported by this version")
 	}
-}
-
-func (h *StLinkHandle) usbConfigTrace(enabled bool, tpiuProtocol TpuiPinProtocolType, portSize uint32,
-	traceFreq *uint32, traceClkInFreq uint32, preScaler *uint16) error {
-
-	if enabled == true && ((h.version.flags&STLINK_F_HAS_TRACE == 0) || tpiuProtocol != TpuiPinProtocolAsyncUart) {
-		return errors.New("the attached ST-Link version does not support this trace mode")
-	}
-
-	if !enabled {
-		h.usbTraceDisable()
-		return nil
-	}
-
-	if *traceFreq > STLINK_TRACE_MAX_HZ {
-		return errors.New("this ST-Link version does not support frequency")
-	}
-
-	h.usbTraceDisable()
-
-	if *traceFreq == 0 {
-		*traceFreq = STLINK_TRACE_MAX_HZ
-	}
-
-	presc := uint16(traceClkInFreq / *traceFreq)
-
-	if (traceClkInFreq % *traceFreq) > 0 {
-		presc++
-	}
-
-	if presc > TpuiAcprMaxSwoScaler {
-		return errors.New("SWO frequency is not suitable. Please choose a different")
-	}
-
-	*preScaler = presc
-	h.trace.sourceHz = *traceFreq
-
-	return h.usbTraceEnable()
 }

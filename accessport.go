@@ -15,9 +15,9 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var opened_ap = bitmap.New(DP_APSEL_MAX + 1)
+var openedAp = bitmap.New(DP_APSEL_MAX + 1)
 
-func (h *StLinkHandle) usb_open_ap(apsel uint16) error {
+func (h *StLinkHandle) usbOpenAp(apsel uint16) error {
 
 	/* nothing to do on old versions */
 	if (h.version.flags & STLINK_F_HAS_AP_INIT) == 0 {
@@ -25,44 +25,44 @@ func (h *StLinkHandle) usb_open_ap(apsel uint16) error {
 	}
 
 	if apsel > DP_APSEL_MAX {
-		return errors.New("Apsel > DP_APSEL_MAX")
+		return errors.New("apsel > DP_APSEL_MAX")
 	}
 
-	if opened_ap.Get(int(apsel)) {
+	if openedAp.Get(int(apsel)) {
 		return nil
 	}
 
-	err := h.usb_init_access_port(byte(apsel))
+	err := h.usbInitAccessPort(byte(apsel))
 
 	if err != nil {
 		return err
 	}
 
 	log.Debugf("AP %d enabled", apsel)
-	opened_ap.Set(int(apsel), true)
+	openedAp.Set(int(apsel), true)
 	return nil
 }
 
-func (h *StLinkHandle) usb_init_access_port(ap_num byte) error {
+func (h *StLinkHandle) usbInitAccessPort(apNum byte) error {
 	if (h.version.flags & STLINK_F_HAS_AP_INIT) == 0 {
-		return errors.New("Could not find access port command")
+		return errors.New("could not find access port command")
 	}
 
-	log.Debugf("init ap_num = %d", ap_num)
+	log.Debugf("init ap_num = %d", apNum)
 
-	h.usb_init_buffer(h.rx_ep, 16)
+	h.usbInitBuffer(h.rx_ep, 16)
 
 	h.cmdbuf[h.cmdidx] = STLINK_DEBUG_COMMAND
 	h.cmdidx++
 	h.cmdbuf[h.cmdidx] = STLINK_DEBUG_APIV2_INIT_AP
 	h.cmdidx++
-	h.cmdbuf[h.cmdidx] = ap_num
+	h.cmdbuf[h.cmdidx] = apNum
 	h.cmdidx++
 
-	retval := h.usb_xfer_errcheck(h.databuf, 2)
+	retVal := h.usbTransferErrCheck(h.databuf, 2)
 
-	if retval != ERROR_OK {
-		return errors.New("Could not init accessport on device")
+	if retVal != nil {
+		return errors.New("could not init access port on device")
 	} else {
 		return nil
 	}
