@@ -11,6 +11,7 @@ package gostlink
 
 import (
 	"errors"
+	"fmt"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -97,5 +98,26 @@ func (h *StLinkHandle) usbTraceEnable() error {
 		}
 	} else {
 		return errors.New("tracing not supported by this version")
+	}
+}
+
+func (h *StLinkHandle) usbReadTrace(buffer []byte, size uint32) error {
+	if h.version.flags&STLINK_F_HAS_TRACE == 0 {
+		return errors.New("trace is not active")
+	}
+
+	inP, err := h.usb_interface.InEndpoint(int(h.trace_ep))
+
+	if err != nil {
+		return errors.New(fmt.Sprintf("could not open in endpoint #%d for trace output", int(h.trace_ep)))
+	}
+
+	bytesRead, err := usbRead(inP, buffer)
+
+	if err != nil {
+		return err
+	} else {
+		log.Debug("Read trace %d of %d", bytesRead, size)
+		return nil
 	}
 }

@@ -26,12 +26,14 @@ func main() {
 	if stlink != nil {
 		log.Info("Found ST-Link on your computer! :)")
 	} else {
-		log.Error("Could not find any st-link on your computer")
+		log.Fatal("Could not find any st-link on your computer")
 	}
 
-	code := stlink.GetIdCode()
+	code, err := stlink.GetIdCode()
 
-	log.Infof("Got id code: %d", code)
+	if err == nil {
+		log.Infof("Got id code: %08x", code)
+	}
 
 	stlink.Close()
 	gostlink.CloseUSB()

@@ -310,17 +310,42 @@ func (h *StLinkHandle) GetTargetVoltage() (float32, error) {
 	return targetVoltage, nil
 }
 
-func (h *StLinkHandle) GetIdCode() uint32 {
+func (h *StLinkHandle) GetIdCode() (uint32, error) {
+	var offset int
+	var retVal error
 
-	buffer := make([]byte, 1)
+	if h.st_mode == STLINK_MODE_DEBUG_SWIM {
+		return 0, nil
+	}
 
-	ret := h.ReadMem(0xE0042000, 4, 1, buffer)
+	h.usbInitBuffer(h.rx_ep, 12)
 
-	log.Debugf("Got return code: %d", ret)
+	h.cmdbuf[h.cmdidx] = STLINK_DEBUG_COMMAND
+	h.cmdidx++
 
-	return uint32(buffer[0])
+	if h.version.jtag_api == STLINK_JTAG_API_V1 {
+		h.cmdbuf[h.cmdidx] = STLINK_DEBUG_READCOREID
+		h.cmdidx++
+
+		retVal = h.usbTransferNoErrCheck(h.databuf, 4)
+		offset = 0
+	} else {
+		h.cmdbuf[h.cmdidx] = STLINK_DEBUG_APIV2_READ_IDCODES
+		h.cmdidx++
+
+		retVal = h.usbTransferErrCheck(h.databuf, 12)
+		offset = 4
+	}
+
+	if retVal != nil {
+		return 0, retVal
+
+	} else {
+		idCode := le_to_h_u32(h.databuf[offset:])
+
+		return idCode, nil
+	}
 }
-
 func (h *StLinkHandle) SetSpeed(khz uint32, query bool) (uint32, error) {
 
 	switch h.st_mode {
@@ -483,4 +508,38 @@ func (h *StLinkHandle) ReadMem(addr uint32, size uint32, count uint32, buffer []
 	}
 
 	return retErr
+}
+
+func (h *StLinkHandle) PollTrace(buffer []byte, size *uint32) error {
+
+	if h.trace.enabled == true && (h.version.flags&STLINK_F_HAS_TRACE) != 0 {
+		h.usbInitBuffer(h.rx_ep, 10)
+
+		h.cmdbuf[h.cmdidx] = STLINK_DEBUG_COMMAND
+		h.cmdidx++
+
+		h.cmdbuf[h.cmdidx] = STLINK_DEBUG_APIV2_GET_TRACE_NB
+		h.cmdidx++
+
+		err := h.usbTransferNoErrCheck(h.databuf, 2)
+
+		if err != nil {
+			return err
+		}
+
+		bytesAvailable := uint32(le_to_h_u16(h.databuf))
+
+		if bytesAvailable < *size {
+			*size = bytesAvailable
+		} else {
+			*size = *size - 1
+		}
+
+		if *size > 0 {
+			return h.usbReadTrace(buffer, *size)
+		}
+	}
+
+	*size = 0
+	return nil
 }
