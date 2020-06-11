@@ -156,7 +156,7 @@ func dumpSpeedMap(smap []speedMap) {
 func (h *StLinkHandle) usbSetSwdClk(clkDivisor uint16) error {
 
 	if (h.version.flags & STLINK_F_HAS_SWD_SET_FREQ) == 0 {
-		errors.New("cannot change speed on this firmware")
+		return errors.New("cannot change speed on this firmware")
 	}
 
 	h.usbInitBuffer(h.rx_ep, 2)

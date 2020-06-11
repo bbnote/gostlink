@@ -308,7 +308,7 @@ func (h *StLinkHandle) usbCmdAllowRetry(buffer []byte, size uint32) error {
 				var delayUs time.Duration = (1 << retries) * 1000
 
 				retries++
-				log.Debugf("cmdAllowRetry ERROR_WAIT, retry %d, delaying %u microseconds", retries, delayUs)
+				log.Debugf("cmdAllowRetry ERROR_WAIT, retry %d, delaying %d microseconds", retries, delayUs)
 				time.Sleep(delayUs * 1000)
 
 				continue

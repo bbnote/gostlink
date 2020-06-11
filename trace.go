@@ -12,6 +12,7 @@ package gostlink
 import (
 	"errors"
 	"fmt"
+
 	log "github.com/sirupsen/logrus"
 )
 
@@ -117,7 +118,7 @@ func (h *StLinkHandle) usbReadTrace(buffer []byte, size uint32) error {
 	if err != nil {
 		return err
 	} else {
-		log.Debug("Read trace %d of %d", bytesRead, size)
+		log.Debugf("Read trace %d of %d", bytesRead, size)
 		return nil
 	}
 }
