@@ -84,6 +84,7 @@ func main() {
 		log.Error(err)
 	}
 
+
 	stlink.Close()
 	gostlink.CloseUSB()
 }

@@ -84,10 +84,6 @@ func usbWrite(endpoint *gousb.OutEndpoint, buffer []byte) (int, error) {
 
 }
 
-type contextReader interface {
-	ReadContext(context.Context, []byte) (int, error)
-}
-
 func usbRead(endpoint *gousb.InEndpoint, buffer []byte) (int, error) {
 	opCtx := context.Background()
 
@@ -108,25 +104,25 @@ func usbRead(endpoint *gousb.InEndpoint, buffer []byte) (int, error) {
 func (h *StLinkHandle) usbGetVersion() error {
 	var v, x, y, jtag, swim, msd, bridge byte = 0, 0, 0, 0, 0, 0, 0
 
-	h.usbInitBuffer(transferRxEndpoint, 6)
+	ctx := h.initTransfer(transferRxEndpoint, 6)
 
-	h.cmdbuf[h.cmdidx] = cmdGetVersion
-	h.cmdidx++
+	ctx.cmdBuffer.WriteByte(cmdGetVersion)
 
-	err := h.usbTransferNoErrCheck(h.databuf, 6)
+	err := h.usbTransferNoErrCheck(ctx, 6)
 
 	if err != nil {
 		return err
 	}
 
-	version := be_to_h_u16(h.databuf)
+
+	version := be_to_h_u16(ctx.dataBuffer.Bytes())
 
 	v = byte((version >> 12) & 0x0f)
 	x = byte((version >> 6) & 0x3f)
 	y = byte(version & 0x3f)
 
-	h.vid = gousb.ID(le_to_h_u16(h.databuf[2:]))
-	h.pid = gousb.ID(le_to_h_u16(h.databuf[4:]))
+	h.vid = gousb.ID(le_to_h_u16(ctx.dataBuffer.Bytes()[2:]))
+	h.pid = gousb.ID(le_to_h_u16(ctx.dataBuffer.Bytes()[4:]))
 
 	switch h.pid {
 	case stLinkV21Pid, stLinkV21NoMsdPid:
@@ -148,24 +144,23 @@ func (h *StLinkHandle) usbGetVersion() error {
 
 	/* STLINK-V3 requires a specific command */
 	if v == 3 && x == 0 && y == 0 {
-		h.usbInitBuffer(transferRxEndpoint, 16)
+		ctxV3 := h.initTransfer(transferRxEndpoint, 16)
 
-		h.cmdbuf[h.cmdidx] = debugApiV3GetVersionEx
-		h.cmdidx++
+		ctxV3.cmdBuffer.WriteByte(debugApiV3GetVersionEx)
 
-		err := h.usbTransferNoErrCheck(h.databuf, 12)
+		err := h.usbTransferNoErrCheck(ctx, 12)
 
 		if err != nil {
 			return err
 		}
 
-		v = h.databuf[0]
-		swim = h.databuf[1]
-		jtag = h.databuf[2]
-		msd = h.databuf[3]
-		bridge = h.databuf[4]
-		h.vid = gousb.ID(le_to_h_u16(h.databuf[8:]))
-		h.pid = gousb.ID(le_to_h_u16(h.databuf[10:]))
+		v = ctxV3.dataBuffer.Bytes()[0]
+		swim = ctxV3.dataBuffer.Bytes()[1]
+		jtag = ctxV3.dataBuffer.Bytes()[2]
+		msd = ctxV3.dataBuffer.Bytes()[3]
+		bridge = ctxV3.dataBuffer.Bytes()[4]
+		h.vid = gousb.ID(le_to_h_u16(ctxV3.dataBuffer.Bytes()[8:]))
+		h.pid = gousb.ID(le_to_h_u16(ctxV3.dataBuffer.Bytes()[10:]))
 	}
 
 	h.version.stlink = int(v)
@@ -301,12 +296,12 @@ func (h *StLinkHandle) usbGetVersion() error {
 
   Returns an openocd result code.
 */
-func (h *StLinkHandle) usbCmdAllowRetry(buffer []byte, size uint32) error {
+func (h *StLinkHandle) usbCmdAllowRetry(ctx* transferCtx, size uint32) error {
 	var retries int = 0
 
 	for true {
 		if (h.stMode != StLinkModeDebugSwim) || retries > 0 {
-			err := h.usbTransferNoErrCheck(buffer, size)
+			err := h.usbTransferNoErrCheck(ctx, size)
 			if err != nil {
 				return err
 			}
@@ -321,7 +316,7 @@ func (h *StLinkHandle) usbCmdAllowRetry(buffer []byte, size uint32) error {
 				}
 			}*/
 
-		err := h.usbErrorCheck()
+		err := h.usbErrorCheck(ctx)
 
 		if err != nil {
 			usbError := err.(*usbError)
@@ -357,16 +352,13 @@ func (h *StLinkHandle) usbAssertSrst(srst byte) error {
 		return errors.New("could not find rsrt command on target")
 	}
 
-	h.usbInitBuffer(transferRxEndpoint, 2)
+	ctx := h.initTransfer(transferRxEndpoint, 2)
 
-	h.cmdbuf[h.cmdidx] = cmdDebug
-	h.cmdidx++
-	h.cmdbuf[h.cmdidx] = debugApiV2DriveNrst
-	h.cmdidx++
-	h.cmdbuf[h.cmdidx] = srst
-	h.cmdidx++
+	ctx.cmdBuffer.WriteByte(cmdDebug)
+	ctx.cmdBuffer.WriteByte(debugApiV2DriveNrst)
+	ctx.cmdBuffer.WriteByte(srst)
 
-	return h.usbCmdAllowRetry(h.databuf, 2)
+	return h.usbCmdAllowRetry(ctx, 2)
 }
 
 func (h *StLinkHandle) maxBlockSize(tarAutoIncrBlock uint32, address uint32) uint32 {

@@ -22,33 +22,27 @@ func (h *StLinkHandle) usbReadMem8(addr uint32, len uint16, buffer *bytes.Buffer
 		return newUsbError(fmt.Sprintf("max buffer (%d) length exceeded", h.usbBlock()), usbErrorFail)
 	}
 
-	h.usbInitBuffer(transferRxEndpoint, readLen)
+	ctx := h.initTransfer(transferRxEndpoint, readLen)
 
-	h.cmdbuf[h.cmdidx] = cmdDebug
-	h.cmdidx++
+	ctx.cmdBuffer.WriteByte(cmdDebug)
+	ctx.cmdBuffer.WriteByte(debugReadMem8Bit)
 
-	h.cmdbuf[h.cmdidx] = debugReadMem8Bit
-	h.cmdidx++
-
-	uint32ToLittleEndian(h.cmdbuf[h.cmdidx:], addr)
-	h.cmdidx += 4
-
-	uint16ToLittleEndian(h.cmdbuf[h.cmdidx:], len)
-	h.cmdidx += 2
+	uint32ToLittleEndian(&ctx.cmdBuffer, addr)
+	uint16ToLittleEndian(&ctx.cmdBuffer, len)
 
 	// we need to fix read length for single bytes
 	if readLen == 1 {
 		readLen++
 	}
 
-	err := h.usbTransferNoErrCheck(h.databuf, readLen)
+	err := h.usbTransferNoErrCheck(ctx, readLen)
 
 	if err != nil {
 		return newUsbError(fmt.Sprintf("ReadMem8 transfer error occurred"), usbErrorFail)
 
 	}
 
-	buffer.Write(h.databuf[:len])
+	buffer.Write(ctx.dataBuffer.Bytes())
 
 	return h.usbGetReadWriteStatus()
 }
@@ -64,27 +58,21 @@ func (h *StLinkHandle) usbReadMem16(addr uint32, len uint16, buffer *bytes.Buffe
 		return newUsbError("ReadMem16 Invalid data alignment", usbErrorTargetUnalignedAccess)
 	}
 
-	h.usbInitBuffer(transferRxEndpoint, uint32(len))
+	ctx := h.initTransfer(transferRxEndpoint, uint32(len))
 
-	h.cmdbuf[h.cmdidx] = cmdDebug
-	h.cmdidx++
+	ctx.cmdBuffer.WriteByte(cmdDebug)
+	ctx.cmdBuffer.WriteByte(debugApiV2ReadMem16Bit)
 
-	h.cmdbuf[h.cmdidx] = debugApiV2ReadMem16Bit
-	h.cmdidx++
+	uint32ToLittleEndian(&ctx.cmdBuffer, addr)
+	uint16ToLittleEndian(&ctx.cmdBuffer, len)
 
-	uint32ToLittleEndian(h.cmdbuf[h.cmdidx:], addr)
-	h.cmdidx += 4
-
-	uint16ToLittleEndian(h.cmdbuf[h.cmdidx:], len)
-	h.cmdidx += 2
-
-	err := h.usbTransferNoErrCheck(h.databuf, uint32(len))
+	err := h.usbTransferNoErrCheck(ctx, uint32(len))
 
 	if err != nil {
 		return newUsbError("ReadMem16 transfer error occurred", usbErrorFail)
 	}
 
-	buffer.Write(h.databuf[:len])
+	buffer.Write(ctx.dataBuffer.Bytes())
 
 	return h.usbGetReadWriteStatus()
 }
@@ -96,27 +84,21 @@ func (h *StLinkHandle) usbReadMem32(addr uint32, len uint16, buffer *bytes.Buffe
 		return newUsbError("ReadMem32 Invalid data alignment", usbErrorTargetUnalignedAccess)
 	}
 
-	h.usbInitBuffer(transferRxEndpoint, uint32(len))
+	ctx := h.initTransfer(transferRxEndpoint, uint32(len))
 
-	h.cmdbuf[h.cmdidx] = cmdDebug
-	h.cmdidx++
+	ctx.cmdBuffer.WriteByte(cmdDebug)
+	ctx.cmdBuffer.WriteByte(debugReadMem32Bit)
 
-	h.cmdbuf[h.cmdidx] = debugReadMem32Bit
-	h.cmdidx++
+	uint32ToLittleEndian(&ctx.cmdBuffer, addr)
+	uint16ToLittleEndian(&ctx.cmdBuffer, len)
 
-	uint32ToLittleEndian(h.cmdbuf[h.cmdidx:], addr)
-	h.cmdidx += 4
-
-	uint16ToLittleEndian(h.cmdbuf[h.cmdidx:], len)
-	h.cmdidx += 2
-
-	err := h.usbTransferNoErrCheck(h.databuf, uint32(len))
+	err := h.usbTransferNoErrCheck(ctx, uint32(len))
 
 	if err != nil {
 		return newUsbError("ReadMem32 transfer error occurred", usbErrorFail)
 	}
 
-	buffer.Write(h.databuf[:len])
+	buffer.Write(ctx.dataBuffer.Bytes())
 
 	return h.usbGetReadWriteStatus()
 }
@@ -128,21 +110,17 @@ func (h *StLinkHandle) usbWriteMem8(address uint32, len uint16, buffer []byte) e
 		return newUsbError(fmt.Sprintf("max buffer (%d) length exceeded", h.usbBlock()), usbErrorFail)
 	}
 
-	h.usbInitBuffer(transferTxEndpoint, writeLen)
+	ctx := h.initTransfer(transferTxEndpoint, writeLen)
 
-	h.cmdbuf[h.cmdidx] = cmdDebug
-	h.cmdidx++
+	ctx.cmdBuffer.WriteByte(cmdDebug)
+	ctx.cmdBuffer.WriteByte(debugWriteMem8Bit)
 
-	h.cmdbuf[h.cmdidx] = debugWriteMem8Bit
-	h.cmdidx++
+	uint32ToLittleEndian(&ctx.cmdBuffer, address)
+	uint16ToLittleEndian(&ctx.cmdBuffer, len)
 
-	uint32ToLittleEndian(h.cmdbuf[h.cmdidx:], address)
-	h.cmdidx += 4
+	ctx.dataBuffer.Write(buffer[:len])
 
-	uint16ToLittleEndian(h.cmdbuf[h.cmdidx:], len)
-	h.cmdidx += 2
-
-	err := h.usbTransferNoErrCheck(buffer, writeLen)
+	err := h.usbTransferNoErrCheck(ctx, writeLen)
 
 	if err != nil {
 		return err
@@ -163,21 +141,17 @@ func (h *StLinkHandle) usbWriteMem16(address uint32, len uint16, buffer []byte) 
 		return newUsbError("ReadMem16 Invalid data alignment", usbErrorTargetUnalignedAccess)
 	}
 
-	h.usbInitBuffer(transferTxEndpoint, writeLen)
+	ctx := h.initTransfer(transferTxEndpoint, writeLen)
 
-	h.cmdbuf[h.cmdidx] = cmdDebug
-	h.cmdidx++
+	ctx.cmdBuffer.WriteByte(cmdDebug)
+	ctx.cmdBuffer.WriteByte(debugApiV2WriteMem16Bit)
 
-	h.cmdbuf[h.cmdidx] = debugApiV2WriteMem16Bit
-	h.cmdidx++
+	uint32ToLittleEndian(&ctx.cmdBuffer, address)
+	uint16ToLittleEndian(&ctx.cmdBuffer, len)
 
-	uint32ToLittleEndian(h.cmdbuf[h.cmdidx:], address)
-	h.cmdidx += 4
+	ctx.dataBuffer.Write(buffer[:len])
 
-	uint16ToLittleEndian(h.cmdbuf[h.cmdidx:], len)
-	h.cmdidx += 2
-
-	err := h.usbTransferNoErrCheck(buffer, writeLen)
+	err := h.usbTransferNoErrCheck(ctx, writeLen)
 
 	if err != nil {
 		return err
@@ -194,21 +168,17 @@ func (h *StLinkHandle) usbWriteMem32(address uint32, len uint16, buffer []byte) 
 		return newUsbError("ReadMem32 Invalid data alignment", usbErrorTargetUnalignedAccess)
 	}
 
-	h.usbInitBuffer(transferTxEndpoint, writeLen)
+	ctx := h.initTransfer(transferTxEndpoint, writeLen)
 
-	h.cmdbuf[h.cmdidx] = cmdDebug
-	h.cmdidx++
+	ctx.cmdBuffer.WriteByte(cmdDebug)
+	ctx.cmdBuffer.WriteByte(debugWriteMem32Bit)
 
-	h.cmdbuf[h.cmdidx] = debugWriteMem32Bit
-	h.cmdidx++
+	uint32ToLittleEndian(&ctx.cmdBuffer, address)
+	uint16ToLittleEndian(&ctx.cmdBuffer, len)
 
-	uint32ToLittleEndian(h.cmdbuf[h.cmdidx:], address)
-	h.cmdidx += 4
+	ctx.dataBuffer.Write(buffer[:len])
 
-	uint16ToLittleEndian(h.cmdbuf[h.cmdidx:], len)
-	h.cmdidx += 2
-
-	err := h.usbTransferNoErrCheck(buffer, writeLen)
+	err := h.usbTransferNoErrCheck(ctx, writeLen)
 
 	if err != nil {
 		return err

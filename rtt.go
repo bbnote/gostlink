@@ -249,10 +249,10 @@ func (h *StLinkHandle) readDataFromRttChannelBuffer(channelIdx uint32, ramBuffer
 	if data.Len() > 0 {
 		addressRdOff := h.seggerRtt.ramStart + h.seggerRtt.offset + seggerRttControlBlockSize + channelIdx*seggerRttBufferSize + 16 // 20 bytes rdOff pos
 
-		wrBuffer := []byte{0, 0, 0, 0}
-		uint32ToLittleEndian(wrBuffer, RdOff)
+		wrBuffer := bytes.Buffer{}
+		uint32ToLittleEndian(&wrBuffer, RdOff)
 
-		err := h.WriteMem(addressRdOff, Memory32BitBlock, 1, wrBuffer)
+		err := h.WriteMem(addressRdOff, Memory32BitBlock, 1, wrBuffer.Bytes())
 
 		if err != nil {
 			return -1, err

@@ -136,40 +136,40 @@ const (
 	cmdGetTargetVoltage = 0xF7
 )
 
+// ST-Link debug commands
 const (
-	//STLINK_DEBUG_GETSTATUS           = 0x01
-	//STLINK_DEBUG_FORCEDEBUG          = 0x02
-	//STLINK_DEBUG_APIV1_RESETSYS      = 0x03
-	//STLINK_DEBUG_APIV1_READALLREGS   = 0x04
-	//STLINK_DEBUG_APIV1_READREG       = 0x05
-	//STLINK_DEBUG_APIV1_WRITEREG      = 0x06
-	debugReadMem32Bit  = 0x07
-	debugWriteMem32Bit = 0x08
-	//STLINK_DEBUG_RUNCORE             = 0x09
-	//STLINK_DEBUG_STEPCORE            = 0x0a
-	//STLINK_DEBUG_APIV1_SETFP         = 0x0b
-	debugReadMem8Bit  = 0x0c
-	debugWriteMem8Bit = 0x0d
-	//STLINK_DEBUG_APIV1_CLEARFP       = 0x0e
-	//STLINK_DEBUG_APIV1_WRITEDEBUGREG = 0x0f
-	//STLINK_DEBUG_APIV1_SETWATCHPOINT = 0x10
-	//STLINK_DEBUG_ENTER_JTAG_RESET    = 0x00
-	debugEnterSwdNoReset  = 0xa3
-	debugEnterJTagNoReset = 0xa4
-	debugApiV1Enter       = 0x20
-	debugExit             = 0x21
-	debugReadCoreId       = 0x22
-	debugApiV2Enter       = 0x30
-	debugApiV2ReadIdCodes = 0x31
-	//STLINK_DEBUG_APIV2_RESETSYS      = 0x32
-	//STLINK_DEBUG_APIV2_READREG       = 0x33
-	//STLINK_DEBUG_APIV2_WRITEREG      = 0x34
-	//STLINK_DEBUG_APIV2_WRITEDEBUGREG = 0x35
-	//STLINK_DEBUG_APIV2_READDEBUGREG  = 0x36
-	//STLINK_DEBUG_APIV2_READALLREGS     = 0x3A
+	//debugEnterJTag          = 0x00
+	//debugGetStatus          = 0x01
+	//debugForceDebug         = 0x02
+	//debugApiV1ResetSys      = 0x03
+	//debugApiV1ReadAllRegs   = 0x04
+	//debugApiV1ReadReg       = 0x05
+	//debugApiV1WriteReg      = 0x06
+	debugReadMem32Bit         = 0x07
+	debugWriteMem32Bit        = 0x08
+	//debugRunCore            = 0x09
+	//debugStepCore           = 0x0a
+	//debugApiV1SetFP         = 0x0b
+	debugReadMem8Bit          = 0x0c
+	debugWriteMem8Bit         = 0x0d
+	//debugApiV1ClearFP       = 0x0e
+	//debugApiV1WriteDebugReg = 0x0f
+	//debugApiV1SetWatchPoint = 0x10
+	debugApiV1Enter           = 0x20
+	debugExit                 = 0x21
+	debugReadCoreId           = 0x22
+	debugApiV2Enter           = 0x30
+	debugApiV2ReadIdCodes     = 0x31
+	//debugApiV2ResetSys      = 0x32
+	//debugApiV2ReadReg       = 0x33
+	//debugApiV2WriteReg      = 0x34
+	//debugApiV2WriteDebugReg = 0x35
+	//debugApiV2ReadDebugReg  = 0x36
+	//debugApiV2ReadAllRegs                = 0x3A
 	debugApiV2GetLastRWStatus              = 0x3B
 	debugApiV2DriveNrst                    = 0x3C
 	debugApiV2GetLastRWStatus2             = 0x3E
+
 	debugApiV2StartTraceRx                 = 0x40
 	debugApiV2StopTraceRx                  = 0x41
 	debugApiV2GetTraceNB                   = 0x42
@@ -181,13 +181,16 @@ const (
 	debugApiV2WriteMem16Bit                = 0x48
 	debugApiV2InitAccessPort               = 0x4B
 	debugApiV2CloseAccessPortDbg           = 0x4C
-	//STLINK_DEBUG_APIV2_DRIVE_NRST_LOW   = 0x00
-	//STLINK_DEBUG_APIV2_DRIVE_NRST_HIGH  = 0x01
-	//STLINK_DEBUG_APIV2_DRIVE_NRST_PULSE = 0x02
+	//STLINK_DEBUG_APIV2_DRIVE_NRST_LOW    = 0x00
+	//STLINK_DEBUG_APIV2_DRIVE_NRST_HIGH   = 0x01
+	//STLINK_DEBUG_APIV2_DRIVE_NRST_PULSE  = 0x02
 
-	debugApiV3SetComFreq   = 0x61
-	debugApiV3GetComFreq   = 0x62
-	debugApiV3GetVersionEx = 0xFB
+	debugEnterSwdNoReset                   = 0xa3
+	debugEnterJTagNoReset                  = 0xa4
+
+	debugApiV3SetComFreq                   = 0x61
+	debugApiV3GetComFreq                   = 0x62
+	debugApiV3GetVersionEx                 = 0xFB
 )
 
 const (
