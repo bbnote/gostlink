@@ -104,7 +104,7 @@ func usbRead(endpoint *gousb.InEndpoint, buffer []byte) (int, error) {
 func (h *StLinkHandle) usbGetVersion() error {
 	var v, x, y, jtag, swim, msd, bridge byte = 0, 0, 0, 0, 0, 0, 0
 
-	ctx := h.initTransfer(transferRxEndpoint, 6)
+	ctx := h.initTransfer(transferRxEndpoint)
 
 	ctx.cmdBuffer.WriteByte(cmdGetVersion)
 
@@ -113,7 +113,6 @@ func (h *StLinkHandle) usbGetVersion() error {
 	if err != nil {
 		return err
 	}
-
 
 	version := be_to_h_u16(ctx.dataBuffer.Bytes())
 
@@ -144,7 +143,7 @@ func (h *StLinkHandle) usbGetVersion() error {
 
 	/* STLINK-V3 requires a specific command */
 	if v == 3 && x == 0 && y == 0 {
-		ctxV3 := h.initTransfer(transferRxEndpoint, 16)
+		ctxV3 := h.initTransfer(transferRxEndpoint)
 
 		ctxV3.cmdBuffer.WriteByte(debugApiV3GetVersionEx)
 
@@ -296,7 +295,7 @@ func (h *StLinkHandle) usbGetVersion() error {
 
   Returns an openocd result code.
 */
-func (h *StLinkHandle) usbCmdAllowRetry(ctx* transferCtx, size uint32) error {
+func (h *StLinkHandle) usbCmdAllowRetry(ctx *transferCtx, size uint32) error {
 	var retries int = 0
 
 	for true {
@@ -352,7 +351,7 @@ func (h *StLinkHandle) usbAssertSrst(srst byte) error {
 		return errors.New("could not find rsrt command on target")
 	}
 
-	ctx := h.initTransfer(transferRxEndpoint, 2)
+	ctx := h.initTransfer(transferRxEndpoint)
 
 	ctx.cmdBuffer.WriteByte(cmdDebug)
 	ctx.cmdBuffer.WriteByte(debugApiV2DriveNrst)

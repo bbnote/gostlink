@@ -12,9 +12,10 @@ package gostlink
 import (
 	"bytes"
 	"errors"
+	"time"
+
 	"github.com/google/gousb"
 	log "github.com/sirupsen/logrus"
-	"time"
 )
 
 const AllSupportedVIds = 0xFFFF
@@ -172,8 +173,7 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 
 	switch handle.usbDevice.Desc.Product {
 	case stLinkV1Pid:
-		handle.version.stlink = 1
-		handle.txEndpoint, errorTx = handle.usbInterface.OutEndpoint(usbTxEndpointNo)
+		return nil, errors.New("st-link V1 api not supported by gostlink")
 
 	case stLinkV3UsbLoaderPid, stLinkV3EPid, stLinkV3SPid, stLinkV32VcpPid:
 		handle.version.stlink = 3
@@ -293,7 +293,7 @@ func (h *StLinkHandle) GetTargetVoltage() (float32, error) {
 		return -1.0, errors.New("device does not support voltage measurement")
 	}
 
-	ctx := h.initTransfer(transferRxEndpoint, 8)
+	ctx := h.initTransfer(transferRxEndpoint)
 
 	ctx.cmdBuffer.WriteByte(cmdGetTargetVoltage)
 
@@ -326,7 +326,7 @@ func (h *StLinkHandle) GetIdCode() (uint32, error) {
 		return 0, nil
 	}
 
-	ctx := h.initTransfer(transferRxEndpoint, 12)
+	ctx := h.initTransfer(transferRxEndpoint)
 
 	ctx.cmdBuffer.WriteByte(cmdDebug)
 
@@ -635,7 +635,7 @@ func (h *StLinkHandle) WriteMem(address uint32, bitLength MemoryBlockSize, count
 func (h *StLinkHandle) PollTrace(buffer []byte, size *uint32) error {
 
 	if h.trace.enabled == true && (h.version.flags&flagHasTrace) != 0 {
-		ctx := h.initTransfer(transferRxEndpoint, 10)
+		ctx := h.initTransfer(transferRxEndpoint)
 
 		ctx.cmdBuffer.WriteByte(cmdDebug)
 		ctx.cmdBuffer.WriteByte(debugApiV2GetTraceNB)

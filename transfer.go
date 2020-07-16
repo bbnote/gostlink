@@ -14,8 +14,6 @@ import (
 	"errors"
 	"fmt"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 )
 
 type transferCtx struct {
@@ -27,17 +25,13 @@ type transferCtx struct {
 	cmdSize uint32
 }
 
-func (h *StLinkHandle) initTransfer(endpoint usbTransferEndpoint, cmdLength uint32) *transferCtx {
+func (h *StLinkHandle) initTransfer(endpoint usbTransferEndpoint) *transferCtx {
 	context := &transferCtx{}
 
 	context.direction = endpoint
 	context.cmdBuffer.Grow(cmdBufferSize)
 	context.dataBuffer.Grow(dataBufferSize)
 	context.cmdSize = 0
-
-	if h.version.stlink == 1 {
-		h.usbTransferV1CreateCmd(context, cmdLength)
-	}
 
 	return context
 }
@@ -59,15 +53,8 @@ func (h *StLinkHandle) usbTransferNoErrCheck(ctx *transferCtx, dataLength uint32
 	if h.version.stlink == 1 {
 		err := h.usbTransferV1GetStatus(ctx)
 
-		if err == nil {
-			if ctx.cmdBuffer.Bytes()[12] == 1 {
-				log.Debug("Check sense")
-
-				err = h.usbTransferV1GetSense()
-				if err != nil {
-					return err
-				}
-			}
+		if err != nil {
+			return err
 		}
 	}
 
@@ -168,34 +155,13 @@ func (h *StLinkHandle) usbTransferV1GetStatus(ctx *transferCtx) error {
 	return nil
 }
 
-func (h *StLinkHandle) usbTransferV1GetSense() error {
-
-	ctx := h.initTransfer(transferRxEndpoint, 16)
-
-	ctx.cmdBuffer.WriteByte(cmdRequestSense)
-	ctx.cmdBuffer.WriteByte(0)
-	ctx.cmdBuffer.WriteByte(0)
-	ctx.cmdBuffer.WriteByte(0)
-	ctx.cmdBuffer.WriteByte(requestSenseLength)
-
-	ctx.cmdSize = requestSenseLength
-
-	err := h.usbTransferReadWrite(ctx, 16)
-
-	if err != nil {
-		return err
-	} else {
-		return h.usbTransferV1GetStatus(ctx)
-	}
-}
-
 func (h *StLinkHandle) usbGetReadWriteStatus() error {
 
 	if h.version.jtagApi == jTagApiV1 {
 		return nil
 	}
 
-	ctx := h.initTransfer(transferRxEndpoint, 2)
+	ctx := h.initTransfer(transferRxEndpoint)
 	ctx.cmdBuffer.WriteByte(cmdDebug)
 
 	if (h.version.flags & flagHasGetLastRwStatus2) != 0 {

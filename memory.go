@@ -22,7 +22,7 @@ func (h *StLinkHandle) usbReadMem8(addr uint32, len uint16, buffer *bytes.Buffer
 		return newUsbError(fmt.Sprintf("max buffer (%d) length exceeded", h.usbBlock()), usbErrorFail)
 	}
 
-	ctx := h.initTransfer(transferRxEndpoint, readLen)
+	ctx := h.initTransfer(transferRxEndpoint)
 
 	ctx.cmdBuffer.WriteByte(cmdDebug)
 	ctx.cmdBuffer.WriteByte(debugReadMem8Bit)
@@ -58,7 +58,7 @@ func (h *StLinkHandle) usbReadMem16(addr uint32, len uint16, buffer *bytes.Buffe
 		return newUsbError("ReadMem16 Invalid data alignment", usbErrorTargetUnalignedAccess)
 	}
 
-	ctx := h.initTransfer(transferRxEndpoint, uint32(len))
+	ctx := h.initTransfer(transferRxEndpoint)
 
 	ctx.cmdBuffer.WriteByte(cmdDebug)
 	ctx.cmdBuffer.WriteByte(debugApiV2ReadMem16Bit)
@@ -84,7 +84,7 @@ func (h *StLinkHandle) usbReadMem32(addr uint32, len uint16, buffer *bytes.Buffe
 		return newUsbError("ReadMem32 Invalid data alignment", usbErrorTargetUnalignedAccess)
 	}
 
-	ctx := h.initTransfer(transferRxEndpoint, uint32(len))
+	ctx := h.initTransfer(transferRxEndpoint)
 
 	ctx.cmdBuffer.WriteByte(cmdDebug)
 	ctx.cmdBuffer.WriteByte(debugReadMem32Bit)
@@ -110,7 +110,7 @@ func (h *StLinkHandle) usbWriteMem8(address uint32, len uint16, buffer []byte) e
 		return newUsbError(fmt.Sprintf("max buffer (%d) length exceeded", h.usbBlock()), usbErrorFail)
 	}
 
-	ctx := h.initTransfer(transferTxEndpoint, writeLen)
+	ctx := h.initTransfer(transferTxEndpoint)
 
 	ctx.cmdBuffer.WriteByte(cmdDebug)
 	ctx.cmdBuffer.WriteByte(debugWriteMem8Bit)
@@ -141,7 +141,7 @@ func (h *StLinkHandle) usbWriteMem16(address uint32, len uint16, buffer []byte) 
 		return newUsbError("ReadMem16 Invalid data alignment", usbErrorTargetUnalignedAccess)
 	}
 
-	ctx := h.initTransfer(transferTxEndpoint, writeLen)
+	ctx := h.initTransfer(transferTxEndpoint)
 
 	ctx.cmdBuffer.WriteByte(cmdDebug)
 	ctx.cmdBuffer.WriteByte(debugApiV2WriteMem16Bit)
@@ -168,7 +168,7 @@ func (h *StLinkHandle) usbWriteMem32(address uint32, len uint16, buffer []byte) 
 		return newUsbError("ReadMem32 Invalid data alignment", usbErrorTargetUnalignedAccess)
 	}
 
-	ctx := h.initTransfer(transferTxEndpoint, writeLen)
+	ctx := h.initTransfer(transferTxEndpoint)
 
 	ctx.cmdBuffer.WriteByte(cmdDebug)
 	ctx.cmdBuffer.WriteByte(debugWriteMem32Bit)

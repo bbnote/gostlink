@@ -50,7 +50,7 @@ func (h *StLinkHandle) usbInitAccessPort(apNum byte) error {
 
 	log.Debugf("init ap_num = %d", apNum)
 
-	ctx := h.initTransfer(transferRxEndpoint, 16)
+	ctx := h.initTransfer(transferRxEndpoint)
 
 	ctx.cmdBuffer.WriteByte(cmdDebug)
 	ctx.cmdBuffer.WriteByte(debugApiV2InitAccessPort)

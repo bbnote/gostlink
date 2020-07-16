@@ -26,7 +26,7 @@ func (h *StLinkHandle) usbModeEnter(stMode StLinkMode) error {
 		rxSize = 2
 	}
 
-	ctx := h.initTransfer(transferRxEndpoint, rxSize)
+	ctx := h.initTransfer(transferRxEndpoint)
 
 	switch stMode {
 	case StLinkModeDebugJtag:
@@ -68,7 +68,7 @@ func (h *StLinkHandle) usbModeEnter(stMode StLinkMode) error {
 
 func (h *StLinkHandle) usbCurrentMode() (byte, error) {
 
-	ctx := h.initTransfer(transferRxEndpoint, 2)
+	ctx := h.initTransfer(transferRxEndpoint)
 
 	ctx.cmdBuffer.WriteByte(cmdGetCurrentMode)
 
@@ -206,7 +206,7 @@ func (h *StLinkHandle) usbInitMode(connectUnderReset bool, initialInterfaceSpeed
 }
 
 func (h *StLinkHandle) usbLeaveMode(mode StLinkMode) error {
-	ctx := h.initTransfer(transferRxEndpoint, 0)
+	ctx := h.initTransfer(transferRxEndpoint)
 
 	switch mode {
 	case StLinkModeDebugJtag, StLinkModeDebugSwd:

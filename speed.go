@@ -159,7 +159,7 @@ func (h *StLinkHandle) usbSetSwdClk(clkDivisor uint16) error {
 		return errors.New("cannot change speed on this firmware")
 	}
 
-	ctx := h.initTransfer(transferRxEndpoint, 2)
+	ctx := h.initTransfer(transferRxEndpoint)
 
 	ctx.cmdBuffer.WriteByte(cmdDebug)
 	ctx.cmdBuffer.WriteByte(flagHasSwdSetFreq)
@@ -174,10 +174,10 @@ func (h *StLinkHandle) usbSetSwdClk(clkDivisor uint16) error {
 func (h *StLinkHandle) usbGetComFreq(isJtag bool, smap *[]speedMap) error {
 
 	if h.version.jtagApi != jTagApiV3 {
-		return errors.New("Unknown command")
+		return errors.New("unknown command")
 	}
 
-	ctx := h.initTransfer(transferRxEndpoint, 16)
+	ctx := h.initTransfer(transferRxEndpoint)
 
 	ctx.cmdBuffer.WriteByte(cmdDebug)
 	ctx.cmdBuffer.WriteByte(debugApiV3GetComFreq)
@@ -215,7 +215,7 @@ func (h *StLinkHandle) usbSetComFreq(isJtag bool, frequency uint32) error {
 		return errors.New("unknown command")
 	}
 
-	ctx := h.initTransfer(transferRxEndpoint, 16)
+	ctx := h.initTransfer(transferRxEndpoint)
 
 	ctx.cmdBuffer.WriteByte(cmdDebug)
 	ctx.cmdBuffer.WriteByte(debugApiV3SetComFreq)

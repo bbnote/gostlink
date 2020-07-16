@@ -54,7 +54,7 @@ func (h *StLinkHandle) usbTraceDisable() error {
 
 	log.Debug("tracing: disable")
 
-	ctx := h.initTransfer(transferRxEndpoint, 2)
+	ctx := h.initTransfer(transferRxEndpoint)
 
 	ctx.cmdBuffer.WriteByte(cmdDebug)
 	ctx.cmdBuffer.WriteByte(debugApiV2StopTraceRx)
@@ -72,7 +72,7 @@ func (h *StLinkHandle) usbTraceDisable() error {
 func (h *StLinkHandle) usbTraceEnable() error {
 
 	if (h.version.flags & flagHasTrace) != 0 {
-		ctx := h.initTransfer(transferRxEndpoint, 10)
+		ctx := h.initTransfer(transferRxEndpoint)
 
 		ctx.cmdBuffer.WriteByte(cmdDebug)
 		ctx.cmdBuffer.WriteByte(debugApiV2StartTraceRx)
