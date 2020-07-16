@@ -31,10 +31,12 @@ func newUsbError(msg string, code usbErrorCode) error {
   Converts an STLINK status code held in the first byte of a response
   to an gostlink library error, logs any error/wait status as debug output.
 */
-func (h *StLinkHandle) usbErrorCheck() error {
+func (h *StLinkHandle) usbErrorCheck(ctx* transferCtx) error {
+
+	errorStatus := ctx.dataBuffer.Bytes()[0]
 
 	if h.stMode == StLinkModeDebugSwim {
-		switch h.databuf[0] {
+		switch errorStatus {
 		case swimErrorOk:
 			return nil
 
@@ -42,16 +44,16 @@ func (h *StLinkHandle) usbErrorCheck() error {
 			return newUsbError("swim is busy", usbErrorWait)
 
 		default:
-			return newUsbError(fmt.Sprintf("unknown/unexpected STLINK status code 0x%x", h.databuf[0]), usbErrorFail)
+			return newUsbError(fmt.Sprintf("unknown/unexpected STLINK status code 0x%x", errorStatus), usbErrorFail)
 		}
 	}
 
 	/* TODO: no error checking yet on api V1 */
 	if h.version.jtagApi == jTagApiV1 {
-		h.databuf[0] = debugErrorOk
+		errorStatus = debugErrorOk
 	}
 
-	switch h.databuf[0] {
+	switch errorStatus {
 	case debugErrorOk:
 		return nil
 
@@ -109,6 +111,6 @@ func (h *StLinkHandle) usbErrorCheck() error {
 		return newUsbError("STLINK_BAD_AP_ERROR", usbErrorFail)
 
 	default:
-		return newUsbError(fmt.Sprintf("unknown/unexpected STLINK status code 0x%x", h.databuf[0]), usbErrorFail)
+		return newUsbError(fmt.Sprintf("unknown/unexpected STLINK status code 0x%x", errorStatus), usbErrorFail)
 	}
 }

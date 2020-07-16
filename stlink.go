@@ -71,13 +71,7 @@ type StLinkHandle struct {
 
 	reconnectPending bool // reconnect is needed next time we try to query the status
 
-	cmdbuf []byte
-
-	cmdidx uint8
-
-	databuf []byte
-
-	max_mem_packet uint32
+	maxMemPacket uint32
 }
 
 type StLinkInterfaceConfig struct {
@@ -110,10 +104,6 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 
 	handle := &StLinkHandle{}
 	handle.stMode = config.mode
-
-	// initialize data buffers for tx and rx
-	handle.cmdbuf = make([]byte, cmdBufferSize)
-	handle.databuf = make([]byte, dataBufferSize)
 
 	if config.vid == AllSupportedVIds && config.pid == AllSupportedPIds {
 		devices, err = usbFindDevices(goStLinkSupportedVIds, goStLinkSupportedPIds)
@@ -255,7 +245,7 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 	}
 	*/
 
-	handle.max_mem_packet = 1 << 10
+	handle.maxMemPacket = 1 << 10
 
 	err = handle.usbInitAccessPort(0)
 
@@ -275,11 +265,11 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 		if i == 4 || i == 3 {
 			/* Cortex-M3/M4 has 4096 bytes autoincrement range */
 			log.Debug("Set mem packet layout according to Cortex M3/M4")
-			handle.max_mem_packet = 1 << 12
+			handle.maxMemPacket = 1 << 12
 		}
 	}
 
-	log.Debugf("Using TAR autoincrement: %d", handle.max_mem_packet)
+	log.Debugf("Using TAR autoincrement: %d", handle.maxMemPacket)
 	return handle, nil
 }
 
@@ -303,20 +293,19 @@ func (h *StLinkHandle) GetTargetVoltage() (float32, error) {
 		return -1.0, errors.New("device does not support voltage measurement")
 	}
 
-	h.usbInitBuffer(transferRxEndpoint, 8)
+	ctx := h.initTransfer(transferRxEndpoint, 8)
 
-	h.cmdbuf[h.cmdidx] = cmdGetTargetVoltage
-	h.cmdidx++
+	ctx.cmdBuffer.WriteByte(cmdGetTargetVoltage)
 
-	err := h.usbTransferNoErrCheck(h.databuf, 8)
+	err := h.usbTransferNoErrCheck(ctx, 8)
 
 	if err != nil {
 		return -1.0, err
 	}
 
 	/* convert result */
-	adcResults[0] = le_to_h_u32(h.databuf)
-	adcResults[1] = le_to_h_u32(h.databuf[4:])
+	adcResults[0] = le_to_h_u32(ctx.dataBuffer.Bytes())
+	adcResults[1] = le_to_h_u32(ctx.dataBuffer.Bytes()[4:])
 
 	var targetVoltage float32 = 0.0
 
@@ -337,22 +326,19 @@ func (h *StLinkHandle) GetIdCode() (uint32, error) {
 		return 0, nil
 	}
 
-	h.usbInitBuffer(transferRxEndpoint, 12)
+	ctx := h.initTransfer(transferRxEndpoint, 12)
 
-	h.cmdbuf[h.cmdidx] = cmdDebug
-	h.cmdidx++
+	ctx.cmdBuffer.WriteByte(cmdDebug)
 
 	if h.version.jtagApi == jTagApiV1 {
-		h.cmdbuf[h.cmdidx] = debugReadCoreId
-		h.cmdidx++
+		ctx.cmdBuffer.WriteByte(debugReadCoreId)
 
-		retVal = h.usbTransferNoErrCheck(h.databuf, 4)
+		retVal = h.usbTransferNoErrCheck(ctx, 4)
 		offset = 0
 	} else {
-		h.cmdbuf[h.cmdidx] = debugApiV2ReadIdCodes
-		h.cmdidx++
+		ctx.cmdBuffer.WriteByte(debugApiV2ReadIdCodes)
 
-		retVal = h.usbTransferErrCheck(h.databuf, 12)
+		retVal = h.usbTransferErrCheck(ctx, 12)
 		offset = 4
 	}
 
@@ -360,7 +346,7 @@ func (h *StLinkHandle) GetIdCode() (uint32, error) {
 		return 0, retVal
 
 	} else {
-		idCode := le_to_h_u32(h.databuf[offset:])
+		idCode := le_to_h_u32(ctx.dataBuffer.Bytes()[offset:])
 
 		return idCode, nil
 	}
@@ -447,7 +433,7 @@ func (h *StLinkHandle) ReadMem(addr uint32, bitLength MemoryBlockSize, count uin
 	for count > 0 {
 
 		if bitLength != Memory8BitBlock {
-			bytesRemaining = h.maxBlockSize(h.max_mem_packet, addr)
+			bytesRemaining = h.maxBlockSize(h.maxMemPacket, addr)
 		} else {
 			bytesRemaining = h.usbBlock()
 		}
@@ -549,7 +535,7 @@ func (h *StLinkHandle) WriteMem(address uint32, bitLength MemoryBlockSize, count
 
 	for count > 0 {
 		if bitLength != Memory8BitBlock {
-			bytesRemaining = h.maxBlockSize(h.max_mem_packet, address)
+			bytesRemaining = h.maxBlockSize(h.maxMemPacket, address)
 		} else {
 			bytesRemaining = h.usbBlock()
 		}
@@ -649,21 +635,18 @@ func (h *StLinkHandle) WriteMem(address uint32, bitLength MemoryBlockSize, count
 func (h *StLinkHandle) PollTrace(buffer []byte, size *uint32) error {
 
 	if h.trace.enabled == true && (h.version.flags&flagHasTrace) != 0 {
-		h.usbInitBuffer(transferRxEndpoint, 10)
+		ctx := h.initTransfer(transferRxEndpoint, 10)
 
-		h.cmdbuf[h.cmdidx] = cmdDebug
-		h.cmdidx++
+		ctx.cmdBuffer.WriteByte(cmdDebug)
+		ctx.cmdBuffer.WriteByte(debugApiV2GetTraceNB)
 
-		h.cmdbuf[h.cmdidx] = debugApiV2GetTraceNB
-		h.cmdidx++
-
-		err := h.usbTransferNoErrCheck(h.databuf, 2)
+		err := h.usbTransferNoErrCheck(ctx, 2)
 
 		if err != nil {
 			return err
 		}
 
-		bytesAvailable := uint32(le_to_h_u16(h.databuf))
+		bytesAvailable := uint32(le_to_h_u16(ctx.dataBuffer.Bytes()))
 
 		if bytesAvailable < *size {
 			*size = bytesAvailable

@@ -26,67 +26,58 @@ func (h *StLinkHandle) usbModeEnter(stMode StLinkMode) error {
 		rxSize = 2
 	}
 
-	h.usbInitBuffer(transferRxEndpoint, rxSize)
+	ctx := h.initTransfer(transferRxEndpoint, rxSize)
 
 	switch stMode {
 	case StLinkModeDebugJtag:
-		h.cmdbuf[h.cmdidx] = cmdDebug
-		h.cmdidx++
+		ctx.cmdBuffer.WriteByte(cmdDebug)
 
 		if h.version.jtagApi == jTagApiV1 {
-			h.cmdbuf[h.cmdidx] = debugApiV1Enter
+			ctx.cmdBuffer.WriteByte(debugApiV1Enter)
 		} else {
-			h.cmdbuf[h.cmdidx] = debugApiV2Enter
+			ctx.cmdBuffer.WriteByte(debugApiV2Enter)
 		}
-		h.cmdidx++
 
-		h.cmdbuf[h.cmdidx] = debugEnterJTagNoReset
-		h.cmdidx++
+		ctx.cmdBuffer.WriteByte(debugEnterJTagNoReset)
 
 	case StLinkModeDebugSwd:
-		h.cmdbuf[h.cmdidx] = cmdDebug
-		h.cmdidx++
+		ctx.cmdBuffer.WriteByte(cmdDebug)
 
 		if h.version.jtagApi == jTagApiV1 {
-			h.cmdbuf[h.cmdidx] = debugApiV1Enter
+			ctx.cmdBuffer.WriteByte(debugApiV1Enter)
 		} else {
-			h.cmdbuf[h.cmdidx] = debugApiV2Enter
+			ctx.cmdBuffer.WriteByte(debugApiV2Enter)
 		}
-		h.cmdidx++
 
-		h.cmdbuf[h.cmdidx] = debugEnterSwdNoReset
-		h.cmdidx++
+		ctx.cmdBuffer.WriteByte(debugEnterSwdNoReset)
 
 	case StLinkModeDebugSwim:
-		h.cmdbuf[h.cmdidx] = cmdSwim
-		h.cmdidx++
-		h.cmdbuf[h.cmdidx] = swimEnter
-		h.cmdidx++
+		ctx.cmdBuffer.WriteByte(cmdSwim)
+		ctx.cmdBuffer.WriteByte(swimEnter)
 
 		/* swim enter does not return any response or status */
-		return h.usbTransferNoErrCheck(h.databuf, 0)
+		return h.usbTransferNoErrCheck(ctx, 0)
 	case StLinkModeDfu:
 	case StLinkModeMass:
 	default:
 		return errors.New("cannot set usb mode from DFU or mass stlink configuration")
 	}
 
-	return h.usbCmdAllowRetry(h.databuf, rxSize)
+	return h.usbCmdAllowRetry(ctx, rxSize)
 }
 
 func (h *StLinkHandle) usbCurrentMode() (byte, error) {
 
-	h.usbInitBuffer(transferRxEndpoint, 2)
+	ctx := h.initTransfer(transferRxEndpoint, 2)
 
-	h.cmdbuf[h.cmdidx] = cmdGetCurrentMode
-	h.cmdidx++
+	ctx.cmdBuffer.WriteByte(cmdGetCurrentMode)
 
-	err := h.usbTransferNoErrCheck(h.databuf, 2)
+	err := h.usbTransferNoErrCheck(ctx, 2)
 
 	if err != nil {
 		return 0, err
 	} else {
-		return h.databuf[0], nil
+		return ctx.dataBuffer.Bytes()[0], nil
 	}
 }
 
@@ -215,26 +206,20 @@ func (h *StLinkHandle) usbInitMode(connectUnderReset bool, initialInterfaceSpeed
 }
 
 func (h *StLinkHandle) usbLeaveMode(mode StLinkMode) error {
-	h.usbInitBuffer(transferRxEndpoint, 0)
+	ctx := h.initTransfer(transferRxEndpoint, 0)
 
 	switch mode {
 	case StLinkModeDebugJtag, StLinkModeDebugSwd:
-		h.cmdbuf[h.cmdidx] = cmdDebug
-		h.cmdidx++
-		h.cmdbuf[h.cmdidx] = debugExit
-		h.cmdidx++
+		ctx.cmdBuffer.WriteByte(cmdDebug)
+		ctx.cmdBuffer.WriteByte(debugExit)
 
 	case StLinkModeDebugSwim:
-		h.cmdbuf[h.cmdidx] = cmdSwim
-		h.cmdidx++
-		h.cmdbuf[h.cmdidx] = swimExit
-		h.cmdidx++
+		ctx.cmdBuffer.WriteByte(cmdSwim)
+		ctx.cmdBuffer.WriteByte(swimExit)
 
 	case StLinkModeDfu:
-		h.cmdbuf[h.cmdidx] = cmdDfu
-		h.cmdidx++
-		h.cmdbuf[h.cmdidx] = dfuExit
-		h.cmdidx++
+		ctx.cmdBuffer.WriteByte(cmdDfu)
+		ctx.cmdBuffer.WriteByte(dfuExit)
 
 	case StLinkModeMass:
 		return errors.New("unknown stlink mode")
@@ -242,7 +227,7 @@ func (h *StLinkHandle) usbLeaveMode(mode StLinkMode) error {
 		return errors.New("unknown stlink mode")
 	}
 
-	err := h.usbTransferNoErrCheck(h.databuf, 0)
+	err := h.usbTransferNoErrCheck(ctx, 0)
 
 	return err
 }
