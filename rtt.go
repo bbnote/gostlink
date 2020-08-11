@@ -9,10 +9,12 @@ package gostlink
 import (
 	"bytes"
 	"errors"
-	"fmt"
-	log "github.com/sirupsen/logrus"
 	"sort"
+
+	log "github.com/sirupsen/logrus"
 )
+
+type RttDataCb func(int, []byte) error
 
 const (
 	DefaultRamStart = 0x20000000
@@ -157,7 +159,7 @@ func (h *StLinkHandle) UpdateRttChannels(readChannelNames bool) error {
 	return nil
 }
 
-func (h *StLinkHandle) ReadRttChannels() error {
+func (h *StLinkHandle) ReadRttChannels(callback RttDataCb) error {
 	if h.seggerRtt.controlBlock.maxNumUpBuffers == 0 {
 		return errors.New("no channels for reading configured on target")
 	}
@@ -213,8 +215,7 @@ func (h *StLinkHandle) ReadRttChannels() error {
 			channelData := bytes.NewBuffer([]byte{})
 			h.readDataFromRttChannelBuffer(uint32(i), ramBuffer.Bytes(), channelData)
 
-			fmt.Printf("%s", channelData.Bytes())
-
+			callback(i, channelData.Bytes())
 		}
 	}
 
@@ -227,7 +228,6 @@ func (h *StLinkHandle) readDataFromRttChannelBuffer(channelIdx uint32, ramBuffer
 	RdOff := rttBuffer.rdOff
 
 	// determine buffer index
-
 	bufferOffset := uint32(0)
 	for i, channel := range h.seggerRtt.controlBlock.channels {
 		if uint32(i) >= channelIdx {
