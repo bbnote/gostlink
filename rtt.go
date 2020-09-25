@@ -28,7 +28,7 @@ const (
 	SeggerRttModeBlockIfFifoFull               = 2
 )
 
-// hold size of data structs to avoid working with sifeof (from unsafe package)
+// hold size of data structs to avoid working with sizeof (from unsafe package)
 const (
 	seggerRttBufferSize       = 24
 	seggerRttControlBlockSize = 24
@@ -63,44 +63,51 @@ type seggerRttInfo struct {
 	controlBlock seggerRttControlBlock
 }
 
-func (h *StLinkHandle) InitializeRtt(ramSizeKb uint32, ramStart uint32) error {
-	h.seggerRtt.ramStart = ramStart
+func (h *StLinkHandle) InitializeRtt(rttSearchRanges [][2]uint64) error {
 
-	ramBuffer := bytes.NewBuffer([]byte{})
+	for _, r := range rttSearchRanges {
+		log.Infof("Searching for SeggerRTT in range  [%08x, %08x]", r[0], r[0]+r[1])
 
-	log.Debug("Initializing Segger RTT. Read complete RAM...")
+		ramStart := uint32(r[0])
+		rangeSize := uint32(r[1])
 
-	err := h.ReadMem(ramStart, 4, (ramSizeKb*1024)/4, ramBuffer)
+		h.seggerRtt.ramStart = ramStart
+		ramBuffer := bytes.NewBuffer([]byte{})
 
-	if err != nil {
-		return err
-	} else {
-		log.Info("Searching for SeggerRTT control block...")
-		occ := bytes.Index(ramBuffer.Bytes(), []byte("SEGGER RTT"))
+		err := h.ReadMem(ramStart, 4, rangeSize/4, ramBuffer)
 
-		if occ != -1 {
-			h.seggerRtt.offset = uint32(occ)
-
-			log.Infof("Found RTT control block at address: 0x%08x", h.seggerRtt.ramStart+h.seggerRtt.offset)
-			parseRttControlBlock(ramBuffer.Bytes()[h.seggerRtt.offset:], &h.seggerRtt.controlBlock)
-
-			if h.seggerRtt.controlBlock.maxNumDownBuffers == 0 || h.seggerRtt.controlBlock.maxNumUpBuffers == 0 {
-				return errors.New("could not find up or downstream buffers in rtt block")
-			} else {
-				log.Debugf("Got AC-ID: %s, MaxNumUpBuffers: %d, MaxNumDownBuffers: %d",
-					h.seggerRtt.controlBlock.acId,
-					h.seggerRtt.controlBlock.maxNumUpBuffers,
-					h.seggerRtt.controlBlock.maxNumDownBuffers)
-
-				h.seggerRtt.controlBlock.channels = make([]*seggerRttChannel, h.seggerRtt.controlBlock.maxNumUpBuffers+
-					h.seggerRtt.controlBlock.maxNumDownBuffers)
-
-				return nil
-			}
+		if err != nil {
+			return err
 		} else {
-			return errors.New("could not find SEGGER RTT control block id")
+			occ := bytes.Index(ramBuffer.Bytes(), []byte("SEGGER RTT"))
+
+			if occ != -1 {
+				h.seggerRtt.offset = uint32(occ)
+
+				log.Infof("Found RTT control block at address: 0x%08x", h.seggerRtt.ramStart+h.seggerRtt.offset)
+				parseRttControlBlock(ramBuffer.Bytes()[h.seggerRtt.offset:], &h.seggerRtt.controlBlock)
+
+				if h.seggerRtt.controlBlock.maxNumDownBuffers == 0 || h.seggerRtt.controlBlock.maxNumUpBuffers == 0 {
+					return errors.New("could not find any up or downstream buffers in rtt block")
+				} else {
+					log.Debugf("Got AC-ID: %s, MaxNumUpBuffers: %d, MaxNumDownBuffers: %d",
+						h.seggerRtt.controlBlock.acId,
+						h.seggerRtt.controlBlock.maxNumUpBuffers,
+						h.seggerRtt.controlBlock.maxNumDownBuffers)
+
+					h.seggerRtt.controlBlock.channels = make([]*seggerRttChannel, h.seggerRtt.controlBlock.maxNumUpBuffers+
+						h.seggerRtt.controlBlock.maxNumDownBuffers)
+
+					return nil
+				}
+			} else {
+				log.Warn("Could not find Segger RTT control block id in this range")
+			}
 		}
 	}
+
+	return errors.New("could not find any rtt control block in given ranges")
+
 }
 
 func (h *StLinkHandle) UpdateRttChannels(readChannelNames bool) error {

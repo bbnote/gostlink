@@ -7,8 +7,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -20,7 +22,7 @@ var (
 	exitProgram chan bool
 	flagLogFile string
 	flagChannel *int
-	fileHandle *os.File
+	fileHandle  *os.File
 )
 
 func rttDataHandler(channel int, data []byte) error {
@@ -31,7 +33,7 @@ func rttDataHandler(channel int, data []byte) error {
 	if fileHandle != nil {
 		fileHandle.Write(data)
 	} else {
-		fmt.Printf("%d: %s", channel, data)
+		fmt.Print(data)
 	}
 
 	return nil
@@ -53,27 +55,69 @@ func setUpSignalHandler() {
 func main() {
 	log.Info("Welcome to goST-Link library rtt logger...")
 
-	flagDevice := flag.String("Device", "STM32F030R8", "STM32-Device type")
+	flagDevice := flag.String("Device", "", "STM32-Device type")
 	flagSpeed := flag.Int("Speed", 4000, "Interface speed to target device")
 	flagInterface := flag.String("if", "SWD", "Interface connecting to target")
-	flagChannel = flag.Int("RTTChannel", 0, "RTT channel to interface with")
+	flagChannel := flag.Int("RTTChannel", 0, "RTT channel to interface with")
+	flagRTTAddress := flag.Uint64("RTTAddress", 0, "Sets RTT address to RTTAddress")
+	flagRTTSearchRanges := flag.String("RTTSearchRanges", "", "RTTSearchRanges <RangeAddr> <RangeSize> [, <RangeAddr1> <RangeSize1>, ..]")
 
 	flag.Parse()
 
+	var rttSearchRanges [][2]uint64
 	fileHandle = nil
 
 	if len(flag.Args()) == 1 {
 		flagLogFile = flag.Args()[0]
 
-		file, err := os.OpenFile(flag.Args()[0], os.O_APPEND|os.O_WRONLY|os.O_TRUNC, 0644)
+		file, err := os.OpenFile(flag.Args()[0], os.O_APPEND|os.O_RDWR, 0600)
+
 		if err != nil {
 			fileHandle = nil
 			log.Fatal(err)
 		}
 
+		file.Truncate(0)
+		file.Seek(0, 0)
+
 		fileHandle = file
 
 		defer fileHandle.Close()
+	}
+
+	if *flagDevice != "" {
+		cpuInfo := gostlink.GetCpuInformation(*flagDevice)
+
+		if cpuInfo != nil {
+			log.Infof("Found device information for %s [0x%x, 0x%x]", *flagDevice, cpuInfo.RamStart, cpuInfo.RamSize)
+			rttSearchRanges = append(rttSearchRanges, [...]uint64{cpuInfo.RamStart, cpuInfo.RamSize})
+
+		} else {
+			log.Errorf("Could not find device information for %s. Looking for RTT command line parameters...", *flagDevice)
+			os.Exit(-1)
+		}
+	} else if *flagRTTAddress != 0 {
+		rttSearchRanges = append(rttSearchRanges, [...]uint64{*flagRTTAddress, 24})
+
+	} else if *flagRTTSearchRanges != "" {
+
+		ranges := strings.Split(*flagRTTSearchRanges, ",")
+		for _, r := range ranges {
+			var rttStart uint64 = math.MaxUint64
+			var rttRange uint64 = math.MaxUint64
+
+			fmt.Sscanf(r, "%v %v", &rttStart, &rttRange)
+
+			if rttStart != math.MaxUint64 && rttRange != math.MaxUint64 {
+				log.Debugf("Adding search range [0x%x, 0x%x]", rttStart, rttRange)
+				rttSearchRanges = append(rttSearchRanges, [...]uint64{rttStart, rttRange})
+			} else {
+				log.Warnf("Discarding invalid search range '%s'...", r)
+			}
+		}
+	} else {
+		log.Error("Could not find valid device description")
+		os.Exit(-1)
 	}
 
 	err := gostlink.InitializeUSB()
@@ -82,7 +126,7 @@ func main() {
 	}
 
 	log.Debugf("Opening target %s (%s, %d kHz) on channel %d...", *flagDevice, *flagInterface,
-																		 *flagSpeed, *flagChannel)
+		*flagSpeed, *flagChannel)
 
 	setUpSignalHandler()
 
@@ -101,14 +145,14 @@ func main() {
 		log.Infof("Got id code: %08x", code)
 	}
 
-	err = stLink.InitializeRtt(16, gostlink.DefaultRamStart)
+	err = stLink.InitializeRtt(rttSearchRanges)
 	if err != nil {
 		log.Error(err)
 	}
 
 	exitLoop := false
 
-	for ; exitLoop == false;  {
+	for exitLoop == false {
 
 		err := stLink.UpdateRttChannels(false)
 
@@ -124,7 +168,7 @@ func main() {
 		}
 
 		select {
-		case <- exitProgram:
+		case <-exitProgram:
 			exitLoop = true
 		default:
 

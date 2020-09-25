@@ -145,30 +145,30 @@ const (
 	//debugApiV1ReadAllRegs   = 0x04
 	//debugApiV1ReadReg       = 0x05
 	//debugApiV1WriteReg      = 0x06
-	debugReadMem32Bit         = 0x07
-	debugWriteMem32Bit        = 0x08
+	debugReadMem32Bit  = 0x07
+	debugWriteMem32Bit = 0x08
 	//debugRunCore            = 0x09
 	//debugStepCore           = 0x0a
 	//debugApiV1SetFP         = 0x0b
-	debugReadMem8Bit          = 0x0c
-	debugWriteMem8Bit         = 0x0d
+	debugReadMem8Bit  = 0x0c
+	debugWriteMem8Bit = 0x0d
 	//debugApiV1ClearFP       = 0x0e
 	//debugApiV1WriteDebugReg = 0x0f
 	//debugApiV1SetWatchPoint = 0x10
-	debugApiV1Enter           = 0x20
-	debugExit                 = 0x21
-	debugReadCoreId           = 0x22
-	debugApiV2Enter           = 0x30
-	debugApiV2ReadIdCodes     = 0x31
+	debugApiV1Enter       = 0x20
+	debugExit             = 0x21
+	debugReadCoreId       = 0x22
+	debugApiV2Enter       = 0x30
+	debugApiV2ReadIdCodes = 0x31
 	//debugApiV2ResetSys      = 0x32
 	//debugApiV2ReadReg       = 0x33
 	//debugApiV2WriteReg      = 0x34
 	//debugApiV2WriteDebugReg = 0x35
 	//debugApiV2ReadDebugReg  = 0x36
 	//debugApiV2ReadAllRegs                = 0x3A
-	debugApiV2GetLastRWStatus              = 0x3B
-	debugApiV2DriveNrst                    = 0x3C
-	debugApiV2GetLastRWStatus2             = 0x3E
+	debugApiV2GetLastRWStatus  = 0x3B
+	debugApiV2DriveNrst        = 0x3C
+	debugApiV2GetLastRWStatus2 = 0x3E
 
 	debugApiV2StartTraceRx                 = 0x40
 	debugApiV2StopTraceRx                  = 0x41
@@ -185,12 +185,12 @@ const (
 	//STLINK_DEBUG_APIV2_DRIVE_NRST_HIGH   = 0x01
 	//STLINK_DEBUG_APIV2_DRIVE_NRST_PULSE  = 0x02
 
-	debugEnterSwdNoReset                   = 0xa3
-	debugEnterJTagNoReset                  = 0xa4
+	debugEnterSwdNoReset  = 0xa3
+	debugEnterJTagNoReset = 0xa4
 
-	debugApiV3SetComFreq                   = 0x61
-	debugApiV3GetComFreq                   = 0x62
-	debugApiV3GetVersionEx                 = 0xFB
+	debugApiV3SetComFreq   = 0x61
+	debugApiV3GetComFreq   = 0x62
+	debugApiV3GetVersionEx = 0xFB
 )
 
 const (
