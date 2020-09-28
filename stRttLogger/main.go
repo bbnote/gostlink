@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bbnote/gostlink"
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -55,14 +56,17 @@ func setUpSignalHandler() {
 func main() {
 	log.Info("Welcome to goST-Link library rtt logger...")
 
+	flagLogLevel := flag.Int("LogLevel", int(logrus.DebugLevel), "Logging verbosity [0 - 7]")
 	flagDevice := flag.String("Device", "", "STM32-Device type")
 	flagSpeed := flag.Int("Speed", 4000, "Interface speed to target device")
 	flagInterface := flag.String("if", "SWD", "Interface connecting to target")
-	flagChannel := flag.Int("RTTChannel", 0, "RTT channel to interface with")
+	flagChannel = flag.Int("RTTChannel", 0, "RTT channel to interface with")
 	flagRTTAddress := flag.Uint64("RTTAddress", 0, "Sets RTT address to RTTAddress")
 	flagRTTSearchRanges := flag.String("RTTSearchRanges", "", "RTTSearchRanges <RangeAddr> <RangeSize> [, <RangeAddr1> <RangeSize1>, ..]")
 
 	flag.Parse()
+
+	log.SetLevel(log.Level(*flagLogLevel))
 
 	var rttSearchRanges [][2]uint64
 	fileHandle = nil
@@ -147,7 +151,14 @@ func main() {
 
 	err = stLink.InitializeRtt(rttSearchRanges)
 	if err != nil {
-		log.Error(err)
+		log.Error("Error during initialization of Rtt: ", err)
+
+		stLink.Close()
+		gostlink.CloseUSB()
+
+		os.Exit(-1)
+	} else {
+
 	}
 
 	exitLoop := false

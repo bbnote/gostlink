@@ -90,7 +90,7 @@ func (h *StLinkHandle) usbInitMode(connectUnderReset bool, initialInterfaceSpeed
 		return err
 	}
 
-	log.Debugf("Got usb mode: %d", mode)
+	log.Debugf("Current usb mode: 0x%02x", mode)
 
 	var stLinkMode StLinkMode
 
@@ -140,8 +140,6 @@ func (h *StLinkHandle) usbInitMode(connectUnderReset bool, initialInterfaceSpeed
 		}
 	}
 
-	log.Debugf("MODE: 0x%02X", mode)
-
 	stLinkMode = h.stMode
 
 	if stLinkMode == StLinkModeUnknown {
@@ -150,12 +148,12 @@ func (h *StLinkHandle) usbInitMode(connectUnderReset bool, initialInterfaceSpeed
 
 	if stLinkMode == StLinkModeDebugJtag {
 		if (h.version.flags & flagHasJtagSetFreq) != 0 {
-			dumpSpeedMap(jTAGkHzToSpeedMap[:])
+			//dumpSpeedMap(jTAGkHzToSpeedMap[:])
 			h.SetSpeed(initialInterfaceSpeed, false)
 		}
 	} else if stLinkMode == StLinkModeDebugSwd {
 		if (h.version.flags & flagHasJtagSetFreq) != 0 {
-			dumpSpeedMap(swdKHzToSpeedMap[:])
+			//dumpSpeedMap(swdKHzToSpeedMap[:])
 			h.SetSpeed(initialInterfaceSpeed, false)
 		}
 	}
@@ -164,7 +162,7 @@ func (h *StLinkHandle) usbInitMode(connectUnderReset bool, initialInterfaceSpeed
 		var smap = make([]speedMap, v3MaxFreqNb)
 
 		h.usbGetComFreq(stLinkMode == StLinkModeDebugJtag, &smap)
-		dumpSpeedMap(smap)
+		//dumpSpeedMap(smap)
 		h.SetSpeed(initialInterfaceSpeed, false)
 	}
 
@@ -199,8 +197,6 @@ func (h *StLinkHandle) usbInitMode(connectUnderReset bool, initialInterfaceSpeed
 	if err != nil {
 		return err
 	}
-
-	log.Debugf("Mode: 0x%02x", mode)
 
 	return nil
 }
