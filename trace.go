@@ -54,12 +54,12 @@ func (h *StLinkHandle) usbTraceDisable() error {
 
 	log.Debug("tracing: disable")
 
-	h.usbInitBuffer(transferRxEndpoint, 2)
-	h.cmdbuf[h.cmdidx] = cmdDebug
-	h.cmdidx++
-	h.cmdbuf[h.cmdidx] = debugApiV2StopTraceRx
+	ctx := h.initTransfer(transferRxEndpoint)
 
-	err := h.usbTransferErrCheck(h.databuf, 2)
+	ctx.cmdBuffer.WriteByte(cmdDebug)
+	ctx.cmdBuffer.WriteByte(debugApiV2StopTraceRx)
+
+	err := h.usbTransferErrCheck(ctx, 2)
 
 	if err == nil {
 		h.trace.enabled = false
@@ -72,20 +72,15 @@ func (h *StLinkHandle) usbTraceDisable() error {
 func (h *StLinkHandle) usbTraceEnable() error {
 
 	if (h.version.flags & flagHasTrace) != 0 {
-		h.usbInitBuffer(transferRxEndpoint, 10)
+		ctx := h.initTransfer(transferRxEndpoint)
 
-		h.cmdbuf[h.cmdidx] = cmdDebug
-		h.cmdidx++
-		h.cmdbuf[h.cmdidx] = debugApiV2StartTraceRx
-		h.cmdidx++
+		ctx.cmdBuffer.WriteByte(cmdDebug)
+		ctx.cmdBuffer.WriteByte(debugApiV2StartTraceRx)
 
-		uint16ToLittleEndian(h.cmdbuf[h.cmdidx:], traceSize)
-		h.cmdidx += 2
+		uint16ToLittleEndian(&ctx.cmdBuffer, traceSize)
+		uint32ToLittleEndian(&ctx.cmdBuffer, h.trace.sourceHz)
 
-		uint32ToLittleEndian(h.cmdbuf[h.cmdidx:], h.trace.sourceHz)
-		h.cmdidx += 4
-
-		err := h.usbTransferErrCheck(h.databuf, 2)
+		err := h.usbTransferErrCheck(ctx , 2)
 
 		if err == nil {
 			h.trace.enabled = true

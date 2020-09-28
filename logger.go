@@ -8,11 +8,21 @@ import (
 	"os"
 
 	"github.com/sirupsen/logrus"
+	"github.com/x-cray/logrus-prefixed-formatter"
 )
 
 const MaxLogLevel = logrus.DebugLevel
 
 func init() {
+	formatter := &prefixed.TextFormatter{
+		DisableColors:   false,
+		TimestampFormat: "15:04:05",
+		FullTimestamp:   true,
+		ForceFormatting: true,
+	}
+
+	logrus.SetFormatter(formatter)
+
 	logrus.SetOutput(os.Stdout)
 	logrus.SetLevel(MaxLogLevel)
 }

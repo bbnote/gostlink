@@ -159,17 +159,14 @@ func (h *StLinkHandle) usbSetSwdClk(clkDivisor uint16) error {
 		return errors.New("cannot change speed on this firmware")
 	}
 
-	h.usbInitBuffer(transferRxEndpoint, 2)
+	ctx := h.initTransfer(transferRxEndpoint)
 
-	h.cmdbuf[h.cmdidx] = cmdDebug
-	h.cmdidx++
-	h.cmdbuf[h.cmdidx] = flagHasSwdSetFreq
-	h.cmdidx++
+	ctx.cmdBuffer.WriteByte(cmdDebug)
+	ctx.cmdBuffer.WriteByte(flagHasSwdSetFreq)
 
-	uint16ToLittleEndian(h.cmdbuf[h.cmdidx:], clkDivisor)
-	h.cmdidx += 2
+	uint16ToLittleEndian(&ctx.cmdBuffer, clkDivisor)
 
-	err := h.usbCmdAllowRetry(h.databuf, 2)
+	err := h.usbCmdAllowRetry(ctx, 2)
 
 	return err
 }
@@ -177,33 +174,30 @@ func (h *StLinkHandle) usbSetSwdClk(clkDivisor uint16) error {
 func (h *StLinkHandle) usbGetComFreq(isJtag bool, smap *[]speedMap) error {
 
 	if h.version.jtagApi != jTagApiV3 {
-		return errors.New("Unknown command")
+		return errors.New("unknown command")
 	}
 
-	h.usbInitBuffer(transferRxEndpoint, 16)
+	ctx := h.initTransfer(transferRxEndpoint)
 
-	h.cmdbuf[h.cmdidx] = cmdDebug
-	h.cmdidx++
-	h.cmdbuf[h.cmdidx] = debugApiV3GetComFreq
-	h.cmdidx++
+	ctx.cmdBuffer.WriteByte(cmdDebug)
+	ctx.cmdBuffer.WriteByte(debugApiV3GetComFreq)
 
 	if isJtag {
-		h.cmdbuf[h.cmdidx] = 1
+		ctx.cmdBuffer.WriteByte(1)
 	} else {
-		h.cmdbuf[h.cmdidx] = 0
+		ctx.cmdBuffer.WriteByte(0)
 	}
-	h.cmdidx++
 
-	err := h.usbTransferErrCheck(h.databuf, 52)
+	err := h.usbTransferErrCheck(ctx, 52)
 
-	size := uint32(h.databuf[8])
+	size := uint32(ctx.dataBuffer.Bytes()[8])
 
 	if size > v3MaxFreqNb {
 		size = v3MaxFreqNb
 	}
 
 	for i := uint32(0); i < size; i++ {
-		(*smap)[i].speed = le_to_h_u32(h.databuf[12+4*i:])
+		(*smap)[i].speed = le_to_h_u32(ctx.dataBuffer.Bytes()[12+4*i:])
 		(*smap)[i].speedDivisor = i
 	}
 
@@ -221,26 +215,21 @@ func (h *StLinkHandle) usbSetComFreq(isJtag bool, frequency uint32) error {
 		return errors.New("unknown command")
 	}
 
-	h.usbInitBuffer(transferRxEndpoint, 16)
+	ctx := h.initTransfer(transferRxEndpoint)
 
-	h.cmdbuf[h.cmdidx] = cmdDebug
-	h.cmdidx++
-	h.cmdbuf[h.cmdidx] = debugApiV3SetComFreq
-	h.cmdidx++
+	ctx.cmdBuffer.WriteByte(cmdDebug)
+	ctx.cmdBuffer.WriteByte(debugApiV3SetComFreq)
 
 	if isJtag {
-		h.cmdbuf[h.cmdidx] = 1
+		ctx.cmdBuffer.WriteByte(1)
 	} else {
-		h.cmdbuf[h.cmdidx] = 0
+		ctx.cmdBuffer.WriteByte(0)
 	}
-	h.cmdidx++
+	ctx.cmdBuffer.WriteByte(0)
 
-	h.cmdbuf[h.cmdidx] = 0
-	h.cmdidx++
+	uint32ToLittleEndian(&ctx.cmdBuffer, frequency)
 
-	uint32ToLittleEndian(h.cmdbuf[4:], frequency)
-
-	err := h.usbTransferErrCheck(h.databuf, 8)
+	err := h.usbTransferErrCheck(ctx, 8)
 
 	return err
 }
