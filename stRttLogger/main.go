@@ -139,8 +139,8 @@ func main() {
 
 	stLink, err := gostlink.NewStLink(config)
 
-	if stLink == nil {
-		log.Fatal("Could not find any st-link on your computer")
+	if err != nil {
+		log.Fatal("Could not find any st-link on your computer: ", err)
 	}
 
 	code, err := stLink.GetIdCode()
@@ -150,6 +150,7 @@ func main() {
 	}
 
 	err = stLink.InitializeRtt(rttSearchRanges)
+
 	if err != nil {
 		log.Error("Error during initialization of Rtt: ", err)
 
@@ -158,36 +159,36 @@ func main() {
 
 		os.Exit(-1)
 	} else {
+		exitLoop := false
 
+		for exitLoop == false {
+
+			err := stLink.UpdateRttChannels(false)
+
+			if err != nil {
+				log.Error(err)
+
+			}
+
+			err = stLink.ReadRttChannels(rttDataHandler)
+
+			if err != nil {
+				log.Error(err)
+			}
+
+			select {
+			case <-exitProgram:
+				exitLoop = true
+			default:
+
+			}
+
+			time.Sleep(50 * 1000 * 1000)
+		}
+
+		stLink.Close()
+		gostlink.CloseUSB()
+
+		os.Exit(0)
 	}
-
-	exitLoop := false
-
-	for exitLoop == false {
-
-		err := stLink.UpdateRttChannels(false)
-
-		if err != nil {
-			log.Error(err)
-
-		}
-
-		err = stLink.ReadRttChannels(rttDataHandler)
-
-		if err != nil {
-			log.Error(err)
-		}
-
-		select {
-		case <-exitProgram:
-			exitLoop = true
-		default:
-
-		}
-
-		time.Sleep(50 * 1000 * 1000)
-	}
-
-	stLink.Close()
-	gostlink.CloseUSB()
 }

@@ -186,11 +186,11 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 		handle.traceEndpoint, errorTrace = handle.usbInterface.InEndpoint(usbTraceEndpointApi2v1)
 
 	default:
-		log.Infof("Could not determine pid of debugger %04x. Assuming Link V2", handle.usbDevice.Desc.Product)
+		log.Infof("Could not determine pid of debugger %04x. Assuming Link V2 api", handle.usbDevice.Desc.Product)
 		handle.version.stlink = 2
 
-		handle.txEndpoint, errorTx = handle.usbInterface.OutEndpoint(usbTxEndpointNo)
-		handle.traceEndpoint, errorTrace = handle.usbInterface.InEndpoint(usbTraceEndpointNo)
+		handle.txEndpoint, errorTx = handle.usbInterface.OutEndpoint(usbTxEndpointApi2v1)
+		handle.traceEndpoint, errorTrace = handle.usbInterface.InEndpoint(usbTraceEndpointApi2v1)
 	}
 
 	if errorTrace != nil {

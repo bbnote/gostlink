@@ -78,6 +78,23 @@ const (
 	deviceModeUnknown    = -1
 )
 
+func usbModeToString(mode byte) string {
+	switch mode {
+	case deviceModeDFU:
+		return "DFU"
+	case deviceModeMass:
+		return "mass storage"
+	case deviceModeDebug:
+		return "debug mode"
+	case deviceModeSwim:
+		return "swim mode"
+	case deviceModeBootloader:
+		return "bootloader mode"
+	default:
+		return "unkown"
+	}
+}
+
 type usbTransferEndpoint uint8
 
 const (

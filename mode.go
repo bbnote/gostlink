@@ -90,7 +90,7 @@ func (h *StLinkHandle) usbInitMode(connectUnderReset bool, initialInterfaceSpeed
 		return err
 	}
 
-	log.Debugf("Current usb mode: 0x%02x", mode)
+	log.Debugf("Device usb mode before switching: %s (0x%02x)", usbModeToString(mode), mode)
 
 	var stLinkMode StLinkMode
 
@@ -104,7 +104,10 @@ func (h *StLinkHandle) usbInitMode(connectUnderReset bool, initialInterfaceSpeed
 	case deviceModeSwim:
 		stLinkMode = StLinkModeDebugSwim
 
-	case deviceModeBootloader, deviceModeMass:
+	case deviceModeMass:
+		stLinkMode = StLinkModeMass
+
+	case deviceModeBootloader:
 		stLinkMode = StLinkModeUnknown
 
 	default:
@@ -112,7 +115,9 @@ func (h *StLinkHandle) usbInitMode(connectUnderReset bool, initialInterfaceSpeed
 	}
 
 	if stLinkMode != StLinkModeUnknown {
-		h.usbLeaveMode(stLinkMode)
+		if err = h.usbLeaveMode(stLinkMode); err != nil {
+			log.Error("Error occured while trying to leave mode: ", err)
+		}
 	}
 
 	mode, err = h.usbCurrentMode()
@@ -121,6 +126,8 @@ func (h *StLinkHandle) usbInitMode(connectUnderReset bool, initialInterfaceSpeed
 		log.Error("Could not get usb mode")
 		return err
 	}
+
+	log.Debugf("Device usb mode after mode exit: %s (0x%02x)", usbModeToString(mode), mode)
 
 	/* we check the target voltage here as an aid to debugging connection problems.
 	 * the stlink requires the target Vdd to be connected for reliable debugging.
@@ -198,6 +205,8 @@ func (h *StLinkHandle) usbInitMode(connectUnderReset bool, initialInterfaceSpeed
 		return err
 	}
 
+	log.Debugf("Device usb mode after mode enter: %s (0x%02x)", usbModeToString(mode), mode)
+
 	return nil
 }
 
@@ -218,7 +227,7 @@ func (h *StLinkHandle) usbLeaveMode(mode StLinkMode) error {
 		ctx.cmdBuffer.WriteByte(dfuExit)
 
 	case StLinkModeMass:
-		return errors.New("unknown stlink mode")
+		return errors.New("cannot leave mass storage mode")
 	default:
 		return errors.New("unknown stlink mode")
 	}
