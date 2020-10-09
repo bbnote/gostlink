@@ -53,14 +53,15 @@ func usbFindDevices(vids []gousb.ID, pids []gousb.ID) ([]*gousb.Device, error) {
 		}
 	})
 
-	if len(devices) > 0 && err != nil {
-		log.Warn("Found devices but an error occured during scan (", err, ")")
-		return devices, nil
-	} else if err == nil {
+	if len(devices) > 0 {
 		log.Infof("Found %d matching devices based on vendor and product id list", len(devices))
+
+		if err != nil {
+			log.Warn("Following errors occured during scan (", err, ")")
+		}
+
 		return devices, nil
 	} else {
-		log.Error("Got error during usb device scan", err)
 		return nil, err
 	}
 }
@@ -147,7 +148,7 @@ func (h *StLinkHandle) usbGetVersion() error {
 
 		ctxV3.cmdBuffer.WriteByte(debugApiV3GetVersionEx)
 
-		err := h.usbTransferNoErrCheck(ctx, 12)
+		err := h.usbTransferNoErrCheck(ctxV3, 12)
 
 		if err != nil {
 			return err
