@@ -6,8 +6,8 @@ package gostlink
 
 import (
 	"bytes"
+
 	"github.com/google/gousb"
-	"log"
 )
 
 func idExists(slice []gousb.ID, item gousb.ID) bool {
@@ -26,11 +26,10 @@ func memset(a []uint8, size int, v uint8) {
 	}
 }
 
-
 // Adds an uint32 to current buffer
 // it's also possible to determine bit position in buffer and amount of bits to be set
 
-func addU32ToBuffer(buffer* bytes.Buffer, firstBit uint, numBits uint, value uint32) {
+func addU32ToBuffer(buffer *bytes.Buffer, firstBit uint, numBits uint, value uint32) {
 
 	if (numBits == 32) && (firstBit == 0) {
 		buffer.WriteByte(uint8((value >> 0) & 0xff))
@@ -39,15 +38,15 @@ func addU32ToBuffer(buffer* bytes.Buffer, firstBit uint, numBits uint, value uin
 		buffer.WriteByte(uint8((value >> 24) & 0xff))
 
 	} else {
-		log.Panic("Implement bit position setting in addU32ToBuffer")
+		logger.Panic("Implement bit position setting in addU32ToBuffer")
 		/*
-		for i := firstBit; i < firstBit+numBits; i++ {
-			if ((value >> (i - firstBit)) & 1) == 1 {
-				buffer[i/8] |= 1 << (i % 8)
-			} else {
-				buffer[i/8] &= ^(1 << (i % 8))
-			}
-		}*/
+			for i := firstBit; i < firstBit+numBits; i++ {
+				if ((value >> (i - firstBit)) & 1) == 1 {
+					buffer[i/8] |= 1 << (i % 8)
+				} else {
+					buffer[i/8] &= ^(1 << (i % 8))
+				}
+			}*/
 	}
 }
 
@@ -79,8 +78,6 @@ func le_to_h_u16(buffer []byte) uint16 {
 func le_to_h_u32(buffer []byte) uint32 {
 	return uint32(buffer[0]) | uint32(buffer[1])<<8 | uint32(buffer[2])<<16 | uint32(buffer[3])<<24
 }
-
-
 
 func uint32ToLittleEndian(buffer *bytes.Buffer, value uint32) {
 	buffer.WriteByte(byte(value >> 0))

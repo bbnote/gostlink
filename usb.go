@@ -10,42 +10,43 @@ import (
 	"fmt"
 	"time"
 
-	log "github.com/sirupsen/logrus"
-
+	"github.com/boljen/go-bitmap"
 	"github.com/google/gousb"
 )
 
-var usbCtx *gousb.Context = nil
+var (
+	libUsbCtx *gousb.Context = nil
+)
 
-func InitializeUSB() error {
-	if usbCtx == nil {
-		usbCtx = gousb.NewContext()
-		usbCtx.Debug(0)
+func InitUsb() error {
+	if libUsbCtx == nil {
 
-		if usbCtx != nil {
-			log.Debug("Initialized libsusb...")
+		libUsbCtx = gousb.NewContext()
+		libUsbCtx.Debug(3)
+
+		if libUsbCtx != nil {
 			return nil
 		} else {
-			return errors.New("Could not initialize libusb!")
+			return errors.New("could not initialize libusb context")
 		}
 	} else {
-		log.Warn("USB already initialized!")
+		logger.Warn("libusb context already initialized")
 		return nil
 	}
 }
 
 func CloseUSB() {
-	if usbCtx != nil {
-		usbCtx.Close()
+	if libUsbCtx != nil {
+		libUsbCtx.Close()
 	} else {
-		log.Warn("Could not close uninitialized usb context")
+		logger.Warn("tried to close non initialized libusb context")
 	}
 }
 
 func usbFindDevices(vids []gousb.ID, pids []gousb.ID) ([]*gousb.Device, error) {
-	devices, err := usbCtx.OpenDevices(func(desc *gousb.DeviceDesc) bool {
+	devices, err := libUsbCtx.OpenDevices(func(desc *gousb.DeviceDesc) bool {
 		if idExists(vids, desc.Vendor) == true && idExists(pids, desc.Product) == true {
-			log.Infof("Found USB device [%04x:%04x] on bus %03d:%03d", uint16(desc.Vendor), uint16(desc.Product), desc.Bus, desc.Address)
+			logger.Debugf("inspect usb device [%04x:%04x] on bus %03d:%03d...", uint16(desc.Vendor), uint16(desc.Product), desc.Bus, desc.Address)
 
 			return true
 		} else {
@@ -53,14 +54,14 @@ func usbFindDevices(vids []gousb.ID, pids []gousb.ID) ([]*gousb.Device, error) {
 		}
 	})
 
-	if len(devices) > 0 && err != nil {
-		log.Warn("Found devices but an error occured during scan (", err, ")")
-		return devices, nil
-	} else if err == nil {
-		log.Infof("Found %d matching devices based on vendor and product id list", len(devices))
+	// Error of OpenDevices is ignored cause of lack
+	// of information on which specific device the error
+	// occurred. So as long we got a valid device handle
+	// returned there is no actual error
+
+	if len(devices) > 0 {
 		return devices, nil
 	} else {
-		log.Error("Got error during usb device scan", err)
 		return nil, err
 	}
 }
@@ -78,7 +79,7 @@ func usbWrite(endpoint *gousb.OutEndpoint, buffer []byte) (int, error) {
 	if err != nil {
 		return -1, err
 	} else {
-		log.Tracef("Wrote %d bytes to endpoint", bytesWritten)
+		logger.Tracef("%d Bytes -> EP-%d", bytesWritten, endpoint.Desc.Number)
 		return bytesWritten, nil
 	}
 
@@ -96,12 +97,12 @@ func usbRead(endpoint *gousb.InEndpoint, buffer []byte) (int, error) {
 	if err != nil {
 		return -1, err
 	} else {
-		log.Tracef("Read %d byte from in endpoint", bytesRead)
+		logger.Tracef("EP-%d -> %d Bytes", endpoint.Desc.Number, bytesRead)
 		return bytesRead, nil
 	}
 }
 
-func (h *StLinkHandle) usbGetVersion() error {
+func (h *StLink) usbGetVersion() error {
 	var v, x, y, jtag, swim, msd, bridge byte = 0, 0, 0, 0, 0, 0, 0
 
 	ctx := h.initTransfer(transferRxEndpoint)
@@ -147,7 +148,7 @@ func (h *StLinkHandle) usbGetVersion() error {
 
 		ctxV3.cmdBuffer.WriteByte(debugApiV3GetVersionEx)
 
-		err := h.usbTransferNoErrCheck(ctx, 12)
+		err := h.usbTransferNoErrCheck(ctxV3, 12)
 
 		if err != nil {
 			return err
@@ -166,7 +167,7 @@ func (h *StLinkHandle) usbGetVersion() error {
 	h.version.jtag = int(jtag)
 	h.version.swim = int(swim)
 
-	var flags uint32 = 0
+	var flags bitmap.Bitmap = bitmap.New(32)
 
 	switch h.version.stlink {
 	case 1:
@@ -183,84 +184,70 @@ func (h *StLinkHandle) usbGetVersion() error {
 		/* API for trace from J13 */
 		/* API for target voltage from J13 */
 		if h.version.jtag >= 13 {
-			flags |= flagHasTrace
+			flags.Set(flagHasTrace, true)
 		}
 
 		/* preferred API to get last R/W status from J15 */
 		if h.version.jtag >= 15 {
-			flags |= flagHasGetLastRwStatus2
+			flags.Set(flagHasGetLastRwStatus2, true)
 		}
 
 		/* API to set SWD frequency from J22 */
 		if h.version.jtag >= 22 {
-			flags |= flagHasSwdSetFreq
+			flags.Set(flagHasSwdSetFreq, true)
 		}
 
 		/* API to set JTAG frequency from J24 */
 		/* API to access DAP registers from J24 */
 		if h.version.jtag >= 24 {
-			flags |= flagHasJtagSetFreq
-			flags |= flagHasDapReg
+			flags.Set(flagHasJtagSetFreq, true)
+			flags.Set(flagHasDapReg, true)
 		}
 
 		/* Quirk for read DP in JTAG mode (V2 only) from J24, fixed in J32 */
 		if h.version.jtag >= 24 && h.version.jtag < 32 {
-			flags |= flagQuirkJtagDpRead
+			flags.Set(flagQuirkJtagDpRead, true)
 		}
 
 		/* API to read/write memory at 16 bit from J26 */
 		if h.version.jtag >= 26 {
-			flags |= flagHasMem16Bit
+			flags.Set(flagHasMem16Bit, true)
 		}
 
 		/* API required to init AP before any AP access from J28 */
 		if h.version.jtag >= 28 {
-			flags |= flagHasApInit
+			flags.Set(flagHasApInit, true)
 		}
 
 		/* API required to return proper error code on close AP from J29 */
 		if h.version.jtag >= 29 {
-			flags |= flagFixCloseAp
+			flags.Set(flagFixCloseAp, true)
 		}
 
 		/* Banked regs (DPv1 & DPv2) support from V2J32 */
 		if h.version.jtag >= 32 {
-			flags |= flagHasDpBankSel
+			flags.Set(flagHasDpBankSel, true)
 		}
 	case 3:
 		/* all STLINK-V3 use api-v3 */
 		h.version.jtagApi = jTagApiV3
 
 		/* STLINK-V3 is a superset of ST-LINK/V2 */
+		flags.Set(flagHasTrace, true)            // API for trace and for target voltage
+		flags.Set(flagHasGetLastRwStatus2, true) // preferred API to get last R/W status
+		flags.Set(flagHasDapReg, true)           // API to access DAP registers
+		flags.Set(flagHasMem16Bit, true)         // API to read/write memory at 16 bit
+		flags.Set(flagHasApInit, true)           // API required to init AP before any AP access
+		flags.Set(flagFixCloseAp, true)          // API required to return proper error code on close AP
 
-		/* API for trace */
-		/* API for target voltage */
-		flags |= flagHasTrace
-
-		/* preferred API to get last R/W status */
-		flags |= flagHasGetLastRwStatus2
-
-		/* API to access DAP registers */
-		flags |= flagHasDapReg
-
-		/* API to read/write memory at 16 bit */
-		flags |= flagHasMem16Bit
-
-		/* API required to init AP before any AP access */
-		flags |= flagHasApInit
-
-		/* API required to return proper error code on close AP */
-		flags |= flagFixCloseAp
-
-		/* Banked regs (DPv1 & DPv2) support from V3J2 */
 		if h.version.jtag >= 2 {
-			flags |= flagHasDpBankSel
+			flags.Set(flagHasDpBankSel, true) // Banked regs (DPv1 & DPv2) support from V3J2
 		}
 
-		/* 8bit read/write max packet size 512 bytes from V3J6 */
 		if h.version.jtag >= 6 {
-			flags |= flagHasRw8Bytes512
+			flags.Set(flagHasRw8Bytes512, true) // 8bit read/write max packet size 512 bytes from V3J6
 		}
+
 	default:
 		break
 	}
@@ -281,9 +268,9 @@ func (h *StLinkHandle) usbGetVersion() error {
 		vStr += fmt.Sprintf("B%d", bridge)
 	}
 
-	serialNo, _ := h.usbDevice.SerialNumber()
+	serialNo, _ := h.libUsbDevice.SerialNumber()
 
-	log.Debugf("Got ST-Link: %s [%s]", vStr, serialNo)
+	logger.Debugf("parsed st-link version [%s] for [%s]", vStr, serialNo)
 
 	return nil
 }
@@ -295,7 +282,7 @@ func (h *StLinkHandle) usbGetVersion() error {
 
   Returns an openocd result code.
 */
-func (h *StLinkHandle) usbCmdAllowRetry(ctx *transferCtx, size uint32) error {
+func (h *StLink) usbCmdAllowRetry(ctx *transferCtx, size uint32) error {
 	var retries int = 0
 
 	for true {
@@ -324,7 +311,7 @@ func (h *StLinkHandle) usbCmdAllowRetry(ctx *transferCtx, size uint32) error {
 				var delayUs time.Duration = (1 << retries) * 1000
 
 				retries++
-				log.Debugf("cmdAllowRetry ERROR_WAIT, retry %d, delaying %d microseconds", retries, delayUs)
+				logger.Debugf("cmdAllowRetry ERROR_WAIT, retry %d, delaying %d microseconds", retries, delayUs)
 				time.Sleep(delayUs * 1000)
 
 				continue
@@ -337,7 +324,7 @@ func (h *StLinkHandle) usbCmdAllowRetry(ctx *transferCtx, size uint32) error {
 	return errors.New("invalid cmd allow retry state")
 }
 
-func (h *StLinkHandle) usbAssertSrst(srst byte) error {
+func (h *StLink) usbAssertSrst(srst byte) error {
 
 	/* TODO:
 		* Implement SWIM debugger
@@ -348,7 +335,7 @@ func (h *StLinkHandle) usbAssertSrst(srst byte) error {
 	*/
 
 	if h.version.stlink == 1 {
-		return errors.New("could not find rsrt command on target")
+		return errors.New("rsrt command not supported by st-link V1")
 	}
 
 	ctx := h.initTransfer(transferRxEndpoint)
@@ -360,7 +347,7 @@ func (h *StLinkHandle) usbAssertSrst(srst byte) error {
 	return h.usbCmdAllowRetry(ctx, 2)
 }
 
-func (h *StLinkHandle) maxBlockSize(tarAutoIncrBlock uint32, address uint32) uint32 {
+func (h *StLink) maxBlockSize(tarAutoIncrBlock uint32, address uint32) uint32 {
 	var maxTarBlock = tarAutoIncrBlock - ((tarAutoIncrBlock - 1) & address)
 
 	if maxTarBlock == 0 {
@@ -370,8 +357,8 @@ func (h *StLinkHandle) maxBlockSize(tarAutoIncrBlock uint32, address uint32) uin
 	return maxTarBlock
 }
 
-func (h *StLinkHandle) usbBlock() uint32 {
-	if (h.version.flags & flagHasRw8Bytes512) > 0 {
+func (h *StLink) usbBlock() uint32 {
+	if h.version.flags.Get(flagHasRw8Bytes512) {
 		return v3MaxReadWrite8
 	} else {
 		return maxReadWrite8

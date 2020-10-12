@@ -10,8 +10,6 @@ import (
 	"bytes"
 	"errors"
 	"sort"
-
-	log "github.com/sirupsen/logrus"
 )
 
 type RttDataCb func(int, []byte) error
@@ -63,10 +61,10 @@ type seggerRttInfo struct {
 	controlBlock seggerRttControlBlock
 }
 
-func (h *StLinkHandle) InitializeRtt(rttSearchRanges [][2]uint64) error {
+func (h *StLink) InitializeRtt(rttSearchRanges [][2]uint64) error {
 
 	for _, r := range rttSearchRanges {
-		log.Infof("Searching for SeggerRTT in range  [%08x, %08x]", r[0], r[0]+r[1])
+		logger.Infof("searching for SeggerRTT in range  [%08x, %08x]", r[0], r[0]+r[1])
 
 		ramStart := uint32(r[0])
 		rangeSize := uint32(r[1])
@@ -84,13 +82,13 @@ func (h *StLinkHandle) InitializeRtt(rttSearchRanges [][2]uint64) error {
 			if occ != -1 {
 				h.seggerRtt.offset = uint32(occ)
 
-				log.Infof("Found RTT control block at address: 0x%08x", h.seggerRtt.ramStart+h.seggerRtt.offset)
+				logger.Infof("found RTT control block at address: 0x%08x", h.seggerRtt.ramStart+h.seggerRtt.offset)
 				parseRttControlBlock(ramBuffer.Bytes()[h.seggerRtt.offset:], &h.seggerRtt.controlBlock)
 
 				if h.seggerRtt.controlBlock.maxNumDownBuffers == 0 || h.seggerRtt.controlBlock.maxNumUpBuffers == 0 {
 					return errors.New("could not find any up or downstream buffers in rtt block")
 				} else {
-					log.Debugf("Got AC-ID: %s, MaxNumUpBuffers: %d, MaxNumDownBuffers: %d",
+					logger.Debugf("got AC-ID: %s, MaxNumUpBuffers: %d, MaxNumDownBuffers: %d",
 						h.seggerRtt.controlBlock.acId,
 						h.seggerRtt.controlBlock.maxNumUpBuffers,
 						h.seggerRtt.controlBlock.maxNumDownBuffers)
@@ -101,7 +99,7 @@ func (h *StLinkHandle) InitializeRtt(rttSearchRanges [][2]uint64) error {
 					return nil
 				}
 			} else {
-				log.Warn("Could not find Segger RTT control block id in this range")
+				logger.Warn("could not find Segger RTT control block id in this range")
 			}
 		}
 	}
@@ -110,7 +108,7 @@ func (h *StLinkHandle) InitializeRtt(rttSearchRanges [][2]uint64) error {
 
 }
 
-func (h *StLinkHandle) UpdateRttChannels(readChannelNames bool) error {
+func (h *StLink) UpdateRttChannels(readChannelNames bool) error {
 	bufferAmount := h.seggerRtt.controlBlock.maxNumUpBuffers + h.seggerRtt.controlBlock.maxNumDownBuffers
 	ramBuffer := bytes.NewBuffer([]byte{})
 	size := bufferAmount * seggerRttBufferSize
@@ -149,7 +147,7 @@ func (h *StLinkHandle) UpdateRttChannels(readChannelNames bool) error {
 				h.ReadMem(rttBuffer.name, 1, 64, channelNameBuf)
 				channelName, _ := channelNameBuf.ReadString(byte(0))
 
-				log.Debugf("%d. Channel Name: %s, \tsize: %d, flags: %d, pBuffer 0x%08x, rdOff: %d, wrOff: %d", i,
+				logger.Debugf("%d. Channel Name: %s, \tsize: %d, flags: %d, pBuffer 0x%08x, rdOff: %d, wrOff: %d", i,
 					channelName, rttBuffer.sizeOfBuffer, rttBuffer.flags, rttBuffer.buffer, rttBuffer.rdOff, rttBuffer.wrOff)
 
 			} else {
@@ -166,7 +164,7 @@ func (h *StLinkHandle) UpdateRttChannels(readChannelNames bool) error {
 	return nil
 }
 
-func (h *StLinkHandle) ReadRttChannels(callback RttDataCb) error {
+func (h *StLink) ReadRttChannels(callback RttDataCb) error {
 	if h.seggerRtt.controlBlock.maxNumUpBuffers == 0 {
 		return errors.New("no channels for reading configured on target")
 	}
@@ -229,7 +227,7 @@ func (h *StLinkHandle) ReadRttChannels(callback RttDataCb) error {
 	return nil
 }
 
-func (h *StLinkHandle) readDataFromRttChannelBuffer(channelIdx uint32, ramBuffer []byte, data *bytes.Buffer) (int, error) {
+func (h *StLink) readDataFromRttChannelBuffer(channelIdx uint32, ramBuffer []byte, data *bytes.Buffer) (int, error) {
 	rttBuffer := h.seggerRtt.controlBlock.channels[channelIdx]
 	wrOff := rttBuffer.wrOff
 	RdOff := rttBuffer.rdOff

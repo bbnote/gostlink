@@ -16,7 +16,7 @@ import (
 
 	"github.com/bbnote/gostlink"
 	"github.com/sirupsen/logrus"
-	log "github.com/sirupsen/logrus"
+	prefixed "github.com/x-cray/logrus-prefixed-formatter"
 )
 
 var (
@@ -24,6 +24,8 @@ var (
 	flagLogFile string
 	flagChannel *int
 	fileHandle  *os.File
+
+	logger *logrus.Logger
 )
 
 func rttDataHandler(channel int, data []byte) error {
@@ -53,8 +55,25 @@ func setUpSignalHandler() {
 
 }
 
+func initLogger() {
+	formatter := &prefixed.TextFormatter{
+		DisableColors:   false,
+		TimestampFormat: "15:04:05",
+		FullTimestamp:   true,
+		ForceFormatting: true,
+	}
+
+	logger = logrus.New()
+
+	logger.SetFormatter(formatter)
+	logger.SetOutput(os.Stdout)
+}
+
 func main() {
-	log.Info("Welcome to goST-Link library rtt logger...")
+	initLogger()
+	gostlink.SetLogger(logger)
+
+	logger.Info("Welcome to goST-Link library rtt logger...")
 
 	flagLogLevel := flag.Int("LogLevel", int(logrus.DebugLevel), "Logging verbosity [0 - 7]")
 	flagDevice := flag.String("Device", "", "STM32-Device type")
@@ -66,7 +85,7 @@ func main() {
 
 	flag.Parse()
 
-	log.SetLevel(log.Level(*flagLogLevel))
+	logger.SetLevel(logrus.Level(*flagLogLevel))
 
 	var rttSearchRanges [][2]uint64
 	fileHandle = nil
@@ -78,7 +97,7 @@ func main() {
 
 		if err != nil {
 			fileHandle = nil
-			log.Fatal(err)
+			logger.Fatal(err)
 		}
 
 		file.Truncate(0)
@@ -93,11 +112,11 @@ func main() {
 		cpuInfo := gostlink.GetCpuInformation(*flagDevice)
 
 		if cpuInfo != nil {
-			log.Infof("Found device information for %s [0x%x, 0x%x]", *flagDevice, cpuInfo.RamStart, cpuInfo.RamSize)
+			logger.Infof("found device information for %s [0x%x, 0x%x]", *flagDevice, cpuInfo.RamStart, cpuInfo.RamSize)
 			rttSearchRanges = append(rttSearchRanges, [...]uint64{cpuInfo.RamStart, cpuInfo.RamSize})
 
 		} else {
-			log.Errorf("Could not find device information for %s. Looking for RTT command line parameters...", *flagDevice)
+			logger.Errorf("could not find device information for %s. Looking for RTT command line parameters...", *flagDevice)
 			os.Exit(-1)
 		}
 	} else if *flagRTTAddress != 0 {
@@ -113,23 +132,23 @@ func main() {
 			fmt.Sscanf(r, "%v %v", &rttStart, &rttRange)
 
 			if rttStart != math.MaxUint64 && rttRange != math.MaxUint64 {
-				log.Debugf("Adding search range [0x%x, 0x%x]", rttStart, rttRange)
+				logger.Debugf("adding search range [0x%x, 0x%x]", rttStart, rttRange)
 				rttSearchRanges = append(rttSearchRanges, [...]uint64{rttStart, rttRange})
 			} else {
-				log.Warnf("Discarding invalid search range '%s'...", r)
+				logger.Warnf("discarding invalid search range '%s'...", r)
 			}
 		}
 	} else {
-		log.Error("Could not find valid device description")
+		logger.Error("could not find valid device description")
 		os.Exit(-1)
 	}
 
-	err := gostlink.InitializeUSB()
+	err := gostlink.InitUsb()
 	if err != nil {
-		log.Panic(err)
+		logger.Panic(err)
 	}
 
-	log.Debugf("Opening target %s (%s, %d kHz) on channel %d...", *flagDevice, *flagInterface,
+	logger.Debugf("searching for target %s (%s, %d kHz) with RTT on channel %d...", *flagDevice, *flagInterface,
 		*flagSpeed, *flagChannel)
 
 	setUpSignalHandler()
@@ -139,55 +158,56 @@ func main() {
 
 	stLink, err := gostlink.NewStLink(config)
 
-	if stLink == nil {
-		log.Fatal("Could not find any st-link on your computer")
+	if err != nil {
+		logger.Fatal("error while scanning for st-links on your computer: ", err)
 	}
 
 	code, err := stLink.GetIdCode()
 
 	if err == nil {
-		log.Infof("Got id code: %08x", code)
+		logger.Infof("got id code: %08x", code)
 	}
 
 	err = stLink.InitializeRtt(rttSearchRanges)
+
 	if err != nil {
-		log.Error("Error during initialization of Rtt: ", err)
+		logger.Error("error during initialization of RTT: ", err)
 
 		stLink.Close()
 		gostlink.CloseUSB()
 
 		os.Exit(-1)
 	} else {
+		exitLoop := false
 
+		for exitLoop == false {
+
+			err := stLink.UpdateRttChannels(false)
+
+			if err != nil {
+				logger.Error(err)
+
+			}
+
+			err = stLink.ReadRttChannels(rttDataHandler)
+
+			if err != nil {
+				logger.Error(err)
+			}
+
+			select {
+			case <-exitProgram:
+				exitLoop = true
+			default:
+
+			}
+
+			time.Sleep(50 * 1000 * 1000)
+		}
+
+		stLink.Close()
+		gostlink.CloseUSB()
+
+		os.Exit(0)
 	}
-
-	exitLoop := false
-
-	for exitLoop == false {
-
-		err := stLink.UpdateRttChannels(false)
-
-		if err != nil {
-			log.Error(err)
-
-		}
-
-		err = stLink.ReadRttChannels(rttDataHandler)
-
-		if err != nil {
-			log.Error(err)
-		}
-
-		select {
-		case <-exitProgram:
-			exitLoop = true
-		default:
-
-		}
-
-		time.Sleep(50 * 1000 * 1000)
-	}
-
-	stLink.Close()
-	gostlink.CloseUSB()
 }

@@ -13,8 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-
-	log "github.com/sirupsen/logrus"
 )
 
 /* SWD clock speed */
@@ -49,7 +47,7 @@ var jTAGkHzToSpeedMap = [...]speedMap{
 	{140, 256},
 }
 
-func (h *StLinkHandle) setSpeedV3(isJtag bool, kHz uint32, querySpeed bool) (uint32, error) {
+func (h *StLink) setSpeedV3(isJtag bool, kHz uint32, querySpeed bool) (uint32, error) {
 
 	var smap = make([]speedMap, v3MaxFreqNb)
 
@@ -72,9 +70,9 @@ func (h *StLinkHandle) setSpeedV3(isJtag bool, kHz uint32, querySpeed bool) (uin
 	return smap[speedIndex].speed, nil
 }
 
-func (h *StLinkHandle) setSpeedSwd(kHz uint32, querySpeed bool) (uint32, error) {
+func (h *StLink) setSpeedSwd(kHz uint32, querySpeed bool) (uint32, error) {
 	/* old firmware cannot change it */
-	if (h.version.flags & flagHasSwdSetFreq) == 0 {
+	if !h.version.flags.Get(flagHasSwdSetFreq) {
 		return kHz, errors.New("target st-link doesn't support swd speed change")
 	}
 
@@ -93,6 +91,89 @@ func (h *StLinkHandle) setSpeedSwd(kHz uint32, querySpeed bool) (uint32, error) 
 	}
 
 	return swdKHzToSpeedMap[speedIndex].speed, nil
+}
+
+func (h *StLink) usbSetSwdClk(clkDivisor uint16) error {
+
+	if !h.version.flags.Get(flagHasSwdSetFreq) {
+		return errors.New("cannot change swd clock speed on connected st link")
+	}
+
+	logger.Tracef("set SWD clk to %d", clkDivisor)
+
+	ctx := h.initTransfer(transferRxEndpoint)
+
+	ctx.cmdBuffer.WriteByte(cmdDebug)
+	ctx.cmdBuffer.WriteByte(flagHasSwdSetFreq)
+
+	uint16ToLittleEndian(&ctx.cmdBuffer, clkDivisor)
+
+	err := h.usbCmdAllowRetry(ctx, 2)
+
+	return err
+}
+
+func (h *StLink) usbGetComFreq(isJtag bool, smap *[]speedMap) error {
+
+	if h.version.jtagApi != jTagApiV3 {
+		return errors.New("get com freq not supported except of api v3")
+	}
+
+	ctx := h.initTransfer(transferRxEndpoint)
+
+	ctx.cmdBuffer.WriteByte(cmdDebug)
+	ctx.cmdBuffer.WriteByte(debugApiV3GetComFreq)
+
+	if isJtag {
+		ctx.cmdBuffer.WriteByte(1)
+	} else {
+		ctx.cmdBuffer.WriteByte(0)
+	}
+
+	err := h.usbTransferErrCheck(ctx, 52)
+
+	size := uint32(ctx.dataBuffer.Bytes()[8])
+
+	if size > v3MaxFreqNb {
+		size = v3MaxFreqNb
+	}
+
+	for i := uint32(0); i < size; i++ {
+		(*smap)[i].speed = le_to_h_u32(ctx.dataBuffer.Bytes()[12+4*i:])
+		(*smap)[i].speedDivisor = i
+	}
+
+	// set to zero all the next entries
+	for i := size; i < v3MaxFreqNb; i++ {
+		(*smap)[i].speed = 0
+	}
+
+	return err
+}
+
+func (h *StLink) usbSetComFreq(isJtag bool, frequency uint32) error {
+
+	if h.version.jtagApi != jTagApiV3 {
+		return errors.New("set com freq not supported except of api v3")
+	}
+
+	ctx := h.initTransfer(transferRxEndpoint)
+
+	ctx.cmdBuffer.WriteByte(cmdDebug)
+	ctx.cmdBuffer.WriteByte(debugApiV3SetComFreq)
+
+	if isJtag {
+		ctx.cmdBuffer.WriteByte(1)
+	} else {
+		ctx.cmdBuffer.WriteByte(0)
+	}
+	ctx.cmdBuffer.WriteByte(0)
+
+	uint32ToLittleEndian(&ctx.cmdBuffer, frequency)
+
+	err := h.usbTransferErrCheck(ctx, 8)
+
+	return err
 }
 
 func matchSpeedMap(smap []speedMap, kHz uint32, query bool) (int, error) {
@@ -148,88 +229,7 @@ func matchSpeedMap(smap []speedMap, kHz uint32, query bool) (int, error) {
 func dumpSpeedMap(smap []speedMap) {
 	for i := range smap {
 		if smap[i].speed > 0 {
-			log.Debugf("%d kHz", smap[i].speed)
+			logger.Debugf("%d kHz", smap[i].speed)
 		}
 	}
-}
-
-func (h *StLinkHandle) usbSetSwdClk(clkDivisor uint16) error {
-
-	if (h.version.flags & flagHasSwdSetFreq) == 0 {
-		return errors.New("cannot change speed on this firmware")
-	}
-
-	ctx := h.initTransfer(transferRxEndpoint)
-
-	ctx.cmdBuffer.WriteByte(cmdDebug)
-	ctx.cmdBuffer.WriteByte(flagHasSwdSetFreq)
-
-	uint16ToLittleEndian(&ctx.cmdBuffer, clkDivisor)
-
-	err := h.usbCmdAllowRetry(ctx, 2)
-
-	return err
-}
-
-func (h *StLinkHandle) usbGetComFreq(isJtag bool, smap *[]speedMap) error {
-
-	if h.version.jtagApi != jTagApiV3 {
-		return errors.New("unknown command")
-	}
-
-	ctx := h.initTransfer(transferRxEndpoint)
-
-	ctx.cmdBuffer.WriteByte(cmdDebug)
-	ctx.cmdBuffer.WriteByte(debugApiV3GetComFreq)
-
-	if isJtag {
-		ctx.cmdBuffer.WriteByte(1)
-	} else {
-		ctx.cmdBuffer.WriteByte(0)
-	}
-
-	err := h.usbTransferErrCheck(ctx, 52)
-
-	size := uint32(ctx.dataBuffer.Bytes()[8])
-
-	if size > v3MaxFreqNb {
-		size = v3MaxFreqNb
-	}
-
-	for i := uint32(0); i < size; i++ {
-		(*smap)[i].speed = le_to_h_u32(ctx.dataBuffer.Bytes()[12+4*i:])
-		(*smap)[i].speedDivisor = i
-	}
-
-	// set to zero all the next entries
-	for i := size; i < v3MaxFreqNb; i++ {
-		(*smap)[i].speed = 0
-	}
-
-	return err
-}
-
-func (h *StLinkHandle) usbSetComFreq(isJtag bool, frequency uint32) error {
-
-	if h.version.jtagApi != jTagApiV3 {
-		return errors.New("unknown command")
-	}
-
-	ctx := h.initTransfer(transferRxEndpoint)
-
-	ctx.cmdBuffer.WriteByte(cmdDebug)
-	ctx.cmdBuffer.WriteByte(debugApiV3SetComFreq)
-
-	if isJtag {
-		ctx.cmdBuffer.WriteByte(1)
-	} else {
-		ctx.cmdBuffer.WriteByte(0)
-	}
-	ctx.cmdBuffer.WriteByte(0)
-
-	uint32ToLittleEndian(&ctx.cmdBuffer, frequency)
-
-	err := h.usbTransferErrCheck(ctx, 8)
-
-	return err
 }
