@@ -33,15 +33,15 @@ const (
 	flagHasTrace            = 0x01
 	flagHasTargetVolt       = flagHasTrace
 	flagHasSwdSetFreq       = 0x02
-	flagHasJtagSetFreq      = 0x04
-	flagHasMem16Bit         = 0x08
-	flagHasGetLastRwStatus2 = 0x10
-	flagHasDapReg           = 0x20
-	flagQuirkJtagDpRead     = 0x40
-	flagHasApInit           = 0x80
-	flagHasDpBankSel        = 0x100
-	flagHasRw8Bytes512      = 0x200
-	flagFixCloseAp          = 0x400
+	flagHasJtagSetFreq      = 0x03
+	flagHasMem16Bit         = 0x04
+	flagHasGetLastRwStatus2 = 0x05
+	flagHasDapReg           = 0x06
+	flagQuirkJtagDpRead     = 0x07
+	flagHasApInit           = 0x08
+	flagHasDpBankSel        = 0x09
+	flagHasRw8Bytes512      = 0x0a
+	flagFixCloseAp          = 0x0b
 )
 
 type stLinkApiVersion uint8 // api versions of stlinks

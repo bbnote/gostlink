@@ -2,10 +2,6 @@
 // Use of this source code is governed by a GNU-style
 // license that can be found in the LICENSE file.
 
-// this code is mainly inspired and based on the openocd project source code
-// for detailed information see
-
-// https://sourceforge.net/p/openocd/code
 package gostlink
 
 import (
@@ -15,12 +11,14 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var openedAp = bitmap.New(debugAccessPortSelectionMaximum + 1)
+var (
+	openedAp = bitmap.New(debugAccessPortSelectionMaximum + 1)
+)
 
-func (h *StLinkHandle) usbOpenAp(apsel uint16) error {
+func (h *StLink) usbOpenAp(apsel uint16) error {
 
 	/* nothing to do on old versions */
-	if (h.version.flags & flagHasApInit) == 0 {
+	if !h.version.flags.Get(flagHasApInit) {
 		return nil
 	}
 
@@ -43,8 +41,8 @@ func (h *StLinkHandle) usbOpenAp(apsel uint16) error {
 	return nil
 }
 
-func (h *StLinkHandle) usbInitAccessPort(apNum byte) error {
-	if (h.version.flags & flagHasApInit) == 0 {
+func (h *StLink) usbInitAccessPort(apNum byte) error {
+	if !h.version.flags.Get(flagHasApInit) {
 		return errors.New("could not find access port command")
 	}
 

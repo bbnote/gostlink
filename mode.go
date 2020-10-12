@@ -11,12 +11,10 @@ package gostlink
 
 import (
 	"errors"
-
-	log "github.com/sirupsen/logrus"
 )
 
 /** */
-func (h *StLinkHandle) usbModeEnter(stMode StLinkMode) error {
+func (h *StLink) usbModeEnter(stMode StLinkMode) error {
 	var rxSize uint32 = 0
 	/* on api V2 we are able the read the latest command
 	 * status
@@ -66,7 +64,7 @@ func (h *StLinkHandle) usbModeEnter(stMode StLinkMode) error {
 	return h.usbCmdAllowRetry(ctx, rxSize)
 }
 
-func (h *StLinkHandle) usbCurrentMode() (byte, error) {
+func (h *StLink) usbCurrentMode() (byte, error) {
 
 	ctx := h.initTransfer(transferRxEndpoint)
 
@@ -81,16 +79,16 @@ func (h *StLinkHandle) usbCurrentMode() (byte, error) {
 	}
 }
 
-func (h *StLinkHandle) usbInitMode(connectUnderReset bool, initialInterfaceSpeed uint32) error {
+func (h *StLink) usbInitMode(connectUnderReset bool, initialInterfaceSpeed uint32) error {
 
 	mode, err := h.usbCurrentMode()
 
 	if err != nil {
-		log.Error("Could not get usb mode")
+		logger.Error("could not get usb mode")
 		return err
 	}
 
-	log.Debugf("Device usb mode before switching: %s (0x%02x)", usbModeToString(mode), mode)
+	logger.Debugf("device usb mode before switching: %s (0x%02x)", usbModeToString(mode), mode)
 
 	var stLinkMode StLinkMode
 
@@ -116,18 +114,18 @@ func (h *StLinkHandle) usbInitMode(connectUnderReset bool, initialInterfaceSpeed
 
 	if stLinkMode != StLinkModeUnknown {
 		if err = h.usbLeaveMode(stLinkMode); err != nil {
-			log.Error("Error occured while trying to leave mode: ", err)
+			logger.Warn("error occured while trying to leave mode: ", err)
 		}
 	}
 
 	mode, err = h.usbCurrentMode()
 
 	if err != nil {
-		log.Error("Could not get usb mode")
+		logger.Error("could not get usb mode")
 		return err
 	}
 
-	log.Debugf("Device usb mode after mode exit: %s (0x%02x)", usbModeToString(mode), mode)
+	logger.Debugf("device usb mode after mode exit: %s (0x%02x)", usbModeToString(mode), mode)
 
 	/* we check the target voltage here as an aid to debugging connection problems.
 	 * the stlink requires the target Vdd to be connected for reliable debugging.
@@ -138,11 +136,11 @@ func (h *StLinkHandle) usbInitMode(connectUnderReset bool, initialInterfaceSpeed
 		voltage, err := h.GetTargetVoltage()
 
 		if err != nil {
-			log.Error(err)
+			logger.Error(err)
 			// attempt to continue as it is not a catastrophic failure
 		} else {
 			if voltage < 1.5 {
-				log.Error("target voltage may be too low for reliable debugging")
+				logger.Error("target voltage may be too low for reliable debugging")
 			}
 		}
 	}
@@ -154,12 +152,12 @@ func (h *StLinkHandle) usbInitMode(connectUnderReset bool, initialInterfaceSpeed
 	}
 
 	if stLinkMode == StLinkModeDebugJtag {
-		if (h.version.flags & flagHasJtagSetFreq) != 0 {
+		if h.version.flags.Get(flagHasJtagSetFreq) {
 			//dumpSpeedMap(jTAGkHzToSpeedMap[:])
 			h.SetSpeed(initialInterfaceSpeed, false)
 		}
 	} else if stLinkMode == StLinkModeDebugSwd {
-		if (h.version.flags & flagHasJtagSetFreq) != 0 {
+		if h.version.flags.Get(flagHasJtagSetFreq) {
 			//dumpSpeedMap(swdKHzToSpeedMap[:])
 			h.SetSpeed(initialInterfaceSpeed, false)
 		}
@@ -182,8 +180,8 @@ func (h *StLinkHandle) usbInitMode(connectUnderReset bool, initialInterfaceSpeed
 	if connectUnderReset && stLinkMode != StLinkModeDebugSwim {
 		h.usbAssertSrst(0)
 		// do not check the return status here, we will
-		//   proceed and enter the desired mode below
-		//   and try asserting srst again.
+		// proceed and enter the desired mode below
+		// and try asserting srst again.
 	}
 
 	err = h.usbModeEnter(stLinkMode)
@@ -205,12 +203,12 @@ func (h *StLinkHandle) usbInitMode(connectUnderReset bool, initialInterfaceSpeed
 		return err
 	}
 
-	log.Debugf("Device usb mode after mode enter: %s (0x%02x)", usbModeToString(mode), mode)
+	logger.Debugf("Device usb mode after mode enter: %s (0x%02x)", usbModeToString(mode), mode)
 
 	return nil
 }
 
-func (h *StLinkHandle) usbLeaveMode(mode StLinkMode) error {
+func (h *StLink) usbLeaveMode(mode StLinkMode) error {
 	ctx := h.initTransfer(transferRxEndpoint)
 
 	switch mode {

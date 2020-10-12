@@ -2,11 +2,6 @@
 // Use of this source code is governed by a GNU-style
 // license that can be found in the LICENSE file.
 
-// this code is mainly inspired and based on the openocd project source code
-// for detailed information see
-
-// https://sourceforge.net/p/openocd/code
-
 package gostlink
 
 import (
@@ -25,7 +20,7 @@ type transferCtx struct {
 	cmdSize uint32
 }
 
-func (h *StLinkHandle) initTransfer(endpoint usbTransferEndpoint) *transferCtx {
+func (h *StLink) initTransfer(endpoint usbTransferEndpoint) *transferCtx {
 	context := &transferCtx{}
 
 	context.direction = endpoint
@@ -36,7 +31,7 @@ func (h *StLinkHandle) initTransfer(endpoint usbTransferEndpoint) *transferCtx {
 	return context
 }
 
-func (h *StLinkHandle) usbTransferNoErrCheck(ctx *transferCtx, dataLength uint32) error {
+func (h *StLink) usbTransferNoErrCheck(ctx *transferCtx, dataLength uint32) error {
 	ctx.cmdSize = cmdSizeV2
 
 	if h.version.stlink == 1 {
@@ -61,7 +56,7 @@ func (h *StLinkHandle) usbTransferNoErrCheck(ctx *transferCtx, dataLength uint32
 	return nil
 }
 
-func (h *StLinkHandle) usbTransferErrCheck(ctx *transferCtx, dataLength uint32) error {
+func (h *StLink) usbTransferErrCheck(ctx *transferCtx, dataLength uint32) error {
 
 	err := h.usbTransferNoErrCheck(ctx, dataLength)
 
@@ -72,7 +67,7 @@ func (h *StLinkHandle) usbTransferErrCheck(ctx *transferCtx, dataLength uint32) 
 	return h.usbErrorCheck(ctx)
 }
 
-func (h *StLinkHandle) usbTransferReadWrite(ctx *transferCtx, dataLength uint32) error {
+func (h *StLink) usbTransferReadWrite(ctx *transferCtx, dataLength uint32) error {
 
 	_, err := usbWrite(h.txEndpoint, ctx.cmdBuffer.Bytes()[:ctx.cmdSize])
 
@@ -106,14 +101,14 @@ func (h *StLinkHandle) usbTransferReadWrite(ctx *transferCtx, dataLength uint32)
 	return nil
 }
 
-func (h *StLinkHandle) usbTransferV1CreateCmd(ctx *transferCtx, cmdLength uint32) {
+func (h *StLink) usbTransferV1CreateCmd(ctx *transferCtx, cmdLength uint32) {
 	ctx.cmdBuffer.WriteByte('U')
 	ctx.cmdBuffer.WriteByte('S')
 	ctx.cmdBuffer.WriteByte('B')
 	ctx.cmdBuffer.WriteByte('C')
 
-	addU32ToBuffer(&ctx.cmdBuffer,0,32,0)
-	addU32ToBuffer(&ctx.cmdBuffer,0,32, cmdLength)
+	addU32ToBuffer(&ctx.cmdBuffer, 0, 32, 0)
+	addU32ToBuffer(&ctx.cmdBuffer, 0, 32, cmdLength)
 
 	/* cbw flags */
 	if ctx.direction == transferRxEndpoint {
@@ -126,20 +121,20 @@ func (h *StLinkHandle) usbTransferV1CreateCmd(ctx *transferCtx, cmdLength uint32
 	ctx.cmdBuffer.WriteByte(0) /* cdb clength (is filled in at xfer) */
 }
 
-func (h *StLinkHandle) usbTransferV1GetStatus(ctx *transferCtx) error {
+func (h *StLink) usbTransferV1GetStatus(ctx *transferCtx) error {
 	ctx.cmdBuffer.Truncate(0)
 
 	bytesRead, err := usbRead(h.rxEndpoint, ctx.cmdBuffer.Bytes())
 
 	if err != nil || bytesRead != 13 {
-		return errors.New("ST-Link V1 status read error")
+		return errors.New("st-link V1 status read error")
 	}
 
 	t1 := buf_get_u32(ctx.cmdBuffer.Bytes(), 0, 32)
 
 	/* check for USBS */
 	if t1 != 0x53425355 {
-		return errors.New("ST-Link USBS check error")
+		return errors.New("st-link usbs check error")
 	}
 
 	/*
@@ -155,7 +150,7 @@ func (h *StLinkHandle) usbTransferV1GetStatus(ctx *transferCtx) error {
 	return nil
 }
 
-func (h *StLinkHandle) usbGetReadWriteStatus() error {
+func (h *StLink) usbGetReadWriteStatus() error {
 
 	if h.version.jtagApi == jTagApiV1 {
 		return nil
@@ -164,10 +159,11 @@ func (h *StLinkHandle) usbGetReadWriteStatus() error {
 	ctx := h.initTransfer(transferRxEndpoint)
 	ctx.cmdBuffer.WriteByte(cmdDebug)
 
-	if (h.version.flags & flagHasGetLastRwStatus2) != 0 {
+	if h.version.flags.Get(flagHasGetLastRwStatus2) {
 		ctx.cmdBuffer.WriteByte(debugApiV2GetLastRWStatus2)
 
 		return h.usbTransferErrCheck(ctx, 12)
+
 	} else {
 		ctx.cmdBuffer.WriteByte(debugApiV2GetLastRWStatus)
 

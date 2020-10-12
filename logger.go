@@ -5,24 +5,20 @@
 package gostlink
 
 import (
-	"os"
-
 	"github.com/sirupsen/logrus"
-	"github.com/x-cray/logrus-prefixed-formatter"
+)
+
+var (
+	logger *logrus.Logger = nil
 )
 
 const MaxLogLevel = logrus.DebugLevel
 
 func init() {
-	formatter := &prefixed.TextFormatter{
-		DisableColors:   false,
-		TimestampFormat: "15:04:05",
-		FullTimestamp:   true,
-		ForceFormatting: true,
-	}
+	logger = logrus.New()
+}
 
-	logrus.SetFormatter(formatter)
+func SetLogger(loggerInstance *logrus.Logger) {
 
-	logrus.SetOutput(os.Stdout)
-	logrus.SetLevel(MaxLogLevel)
+	logger = loggerInstance
 }

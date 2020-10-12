@@ -14,8 +14,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/boljen/go-bitmap"
 	"github.com/google/gousb"
-	log "github.com/sirupsen/logrus"
 )
 
 const AllSupportedVIds = 0xFFFF
@@ -25,16 +25,13 @@ var goStLinkSupportedVIds = []gousb.ID{0x0483} // STLINK Vendor ID
 var goStLinkSupportedPIds = []gousb.ID{0x3744, 0x3748, 0x374b, 0x374d, 0x374e, 0x374f, 0x3752, 0x3753}
 
 type stLinkVersion struct {
-	/** */
 	stlink int
-	/** */
-	jtag int
-	/** */
-	swim int
-	/** jtag api version supported */
+	jtag   int
+	swim   int
+
 	jtagApi stLinkApiVersion
-	/** one bit for each feature supported. See macros STLINK_F_* */
-	flags uint32
+
+	flags bitmap.Bitmap
 }
 
 type stLinkTrace struct {
@@ -43,19 +40,14 @@ type stLinkTrace struct {
 }
 
 /** */
-type StLinkHandle struct {
-	usbDevice *gousb.Device // reference to libusb device
+type StLink struct {
+	libUsbDevice    *gousb.Device    // reference to libusb device
+	libUsbConfig    *gousb.Config    // reference to device configuration
+	libUsbInterface *gousb.Interface // reference to currently used interface
 
-	usbConfig *gousb.Config // reference to device configuration
-
-	usbInterface *gousb.Interface // reference to currently used interface
-
-	rxEndpoint *gousb.InEndpoint // receive from device endpint
-
-	txEndpoint *gousb.OutEndpoint // transmit to device endpoint
-
-	traceEndpoint *gousb.InEndpoint // endpoint from which trace messages are read from
-
+	rxEndpoint       *gousb.InEndpoint  // receive from device endpint
+	txEndpoint       *gousb.OutEndpoint // transmit to device endpoint
+	traceEndpoint    *gousb.InEndpoint  // endpoint from which trace messages are read from
 	transferEndpoint usbTransferEndpoint
 
 	vid gousb.ID // vendor id of device
@@ -99,11 +91,12 @@ func NewStLinkConfig(vid gousb.ID, pid gousb.ID, mode StLinkMode,
 	return config
 }
 
-func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
+func NewStLink(config *StLinkInterfaceConfig) (*StLink, error) {
 	var err error
 	var devices []*gousb.Device
 
-	handle := &StLinkHandle{}
+	handle := &StLink{}
+
 	handle.stMode = config.mode
 
 	if config.vid == AllSupportedVIds && config.pid == AllSupportedPIds {
@@ -121,19 +114,28 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 
 	if len(devices) > 0 {
 		if config.serial == "" && len(devices) > 1 {
+
+			for _, d := range devices {
+				d.Close()
+			}
+
 			return nil, errors.New("could not identity exact stlink by given parameters. (Perhaps a serial no is missing?)")
+
 		} else if len(devices) == 1 {
-			handle.usbDevice = devices[0]
+
+			handle.libUsbDevice = devices[0]
 		} else {
 			for _, dev := range devices {
 				devSerialNo, _ := dev.SerialNumber()
 
-				log.Tracef("Compare serial no %s with number %s", devSerialNo, config.serial)
+				logger.Tracef("compare serial no %s with number %s", devSerialNo, config.serial)
 
 				if devSerialNo == config.serial {
-					handle.usbDevice = dev
+					handle.libUsbDevice = dev
 
-					log.Infof("Found st link with serial number %s", devSerialNo)
+					logger.Infof("found st link with serial number %s", devSerialNo)
+				} else {
+					dev.Close()
 				}
 			}
 		}
@@ -141,29 +143,31 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 		return nil, errors.New("could not find any ST-Link connected to computer")
 	}
 
-	if handle.usbDevice == nil {
+	if handle.libUsbDevice == nil {
 		return nil, errors.New("critical error during device scan")
 	}
 
-	handle.usbDevice.SetAutoDetach(true)
+	handle.libUsbDevice.SetAutoDetach(true)
 
 	// no request required configuration an matching usb interface :D
-	handle.usbConfig, err = handle.usbDevice.Config(1)
+	logger.Trace("request usb configuration #1 on usb device")
+	handle.libUsbConfig, err = handle.libUsbDevice.Config(1)
 	if err != nil {
-		log.Debug(err)
+		logger.Debug(err)
 		return nil, errors.New("could not request configuration #1 for st-link debugger")
 	}
 
-	handle.usbInterface, err = handle.usbConfig.Interface(0, 0)
+	logger.Trace("claim interface 0,0 on usb device")
+	handle.libUsbInterface, err = handle.libUsbConfig.Interface(0, 0)
 	if err != nil {
-		log.Debug(err)
+		logger.Debug(err)
 		return nil, errors.New("could not claim interface 0,0 for st-link debugger")
 	}
 
 	// now determine different endpoints
 	// RX-Endpoint is the same for alle devices
 
-	handle.rxEndpoint, err = handle.usbInterface.InEndpoint(usbRxEndpointNo)
+	handle.rxEndpoint, err = handle.libUsbInterface.InEndpoint(usbRxEndpointNo)
 
 	if err != nil {
 		return nil, errors.New("could get rx endpoint for debugger")
@@ -171,26 +175,26 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 
 	var errorTx, errorTrace error
 
-	switch handle.usbDevice.Desc.Product {
+	switch uint16(handle.libUsbDevice.Desc.Product) {
 	case stLinkV1Pid:
 		return nil, errors.New("st-link V1 api not supported by gostlink")
 
 	case stLinkV3UsbLoaderPid, stLinkV3EPid, stLinkV3SPid, stLinkV32VcpPid:
 		handle.version.stlink = 3
-		handle.txEndpoint, errorTx = handle.usbInterface.OutEndpoint(usbTxEndpointApi2v1)
-		handle.traceEndpoint, errorTrace = handle.usbInterface.InEndpoint(usbTraceEndpointApi2v1)
+		handle.txEndpoint, errorTx = handle.libUsbInterface.OutEndpoint(usbTxEndpointApi2v1)
+		handle.traceEndpoint, errorTrace = handle.libUsbInterface.InEndpoint(usbTraceEndpointApi2v1)
 
 	case stLinkV21Pid, stLinkV21NoMsdPid:
 		handle.version.stlink = 2
-		handle.txEndpoint, errorTx = handle.usbInterface.OutEndpoint(usbTxEndpointApi2v1)
-		handle.traceEndpoint, errorTrace = handle.usbInterface.InEndpoint(usbTraceEndpointApi2v1)
+		handle.txEndpoint, errorTx = handle.libUsbInterface.OutEndpoint(usbTxEndpointApi2v1)
+		handle.traceEndpoint, errorTrace = handle.libUsbInterface.InEndpoint(usbTraceEndpointApi2v1)
 
 	default:
-		log.Infof("Could not determine pid of debugger %04x. Assuming Link V2 api", handle.usbDevice.Desc.Product)
+		logger.Infof("could not determine pid of debugger %x. Assuming Link V2 api", uint16(handle.libUsbDevice.Desc.Product))
 		handle.version.stlink = 2
 
-		handle.txEndpoint, errorTx = handle.usbInterface.OutEndpoint(usbTxEndpointApi2v1)
-		handle.traceEndpoint, errorTrace = handle.usbInterface.InEndpoint(usbTraceEndpointApi2v1)
+		handle.txEndpoint, errorTx = handle.libUsbInterface.OutEndpoint(usbTxEndpointNo)
+		handle.traceEndpoint, errorTrace = handle.libUsbInterface.InEndpoint(usbTraceEndpointNo)
 	}
 
 	if errorTrace != nil {
@@ -260,36 +264,36 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLinkHandle, error) {
 		var cpuid uint32 = le_to_h_u32(buffer.Bytes())
 		var i uint32 = (cpuid >> 4) & 0xf
 
-		log.Debugf("Got CpuID: %08x", cpuid)
+		logger.Debugf("got cpu id [%08x]", cpuid)
 
 		if i == 4 || i == 3 {
 			/* Cortex-M3/M4 has 4096 bytes autoincrement range */
-			log.Debug("Set mem packet layout according to Cortex M3/M4")
+			logger.Debug("set memory packet layout according to Cortex M3/M4")
 			handle.maxMemPacket = 1 << 12
 		}
 	}
 
-	log.Debugf("Using TAR autoincrement: %d", handle.maxMemPacket)
+	logger.Debugf("using TAR autoincrement: %d", handle.maxMemPacket)
 	return handle, nil
 }
 
-func (h *StLinkHandle) Close() {
-	if h.usbDevice != nil {
-		log.Debugf("Close ST-Link device [%04x:%04x]", uint16(h.vid), uint16(h.pid))
+func (h *StLink) Close() {
+	if h.libUsbDevice != nil {
+		logger.Debugf("close st-link device [%04x:%04x]", uint16(h.vid), uint16(h.pid))
 
-		h.usbInterface.Close()
-		h.usbConfig.Close()
-		h.usbDevice.Close()
+		h.libUsbInterface.Close()
+		h.libUsbConfig.Close()
+		h.libUsbDevice.Close()
 	} else {
-		log.Warn("Tried to close invalid stlink handle")
+		logger.Warn("tried to close invalid stlink handle")
 	}
 }
 
-func (h *StLinkHandle) GetTargetVoltage() (float32, error) {
+func (h *StLink) GetTargetVoltage() (float32, error) {
 	var adcResults [2]uint32
 
 	/* no error message, simply quit with error */
-	if (h.version.flags & flagHasTargetVolt) == 0 {
+	if !h.version.flags.Get(flagHasTargetVolt) {
 		return -1.0, errors.New("device does not support voltage measurement")
 	}
 
@@ -313,12 +317,12 @@ func (h *StLinkHandle) GetTargetVoltage() (float32, error) {
 		targetVoltage = 2 * (float32(adcResults[1]) * (1.2 / float32(adcResults[0])))
 	}
 
-	log.Infof("Target voltage: %f", targetVoltage)
+	logger.Infof("Voltage measured on target [%f V]", targetVoltage)
 
 	return targetVoltage, nil
 }
 
-func (h *StLinkHandle) GetIdCode() (uint32, error) {
+func (h *StLink) GetIdCode() (uint32, error) {
 	var offset int
 	var retVal error
 
@@ -351,7 +355,7 @@ func (h *StLinkHandle) GetIdCode() (uint32, error) {
 		return idCode, nil
 	}
 }
-func (h *StLinkHandle) SetSpeed(khz uint32, query bool) (uint32, error) {
+func (h *StLink) SetSpeed(khz uint32, query bool) (uint32, error) {
 
 	switch h.stMode {
 	/*case STLINK_MODE_DEBUG_SWIM:
@@ -377,10 +381,10 @@ func (h *StLinkHandle) SetSpeed(khz uint32, query bool) (uint32, error) {
 	}
 }
 
-func (h *StLinkHandle) ConfigTrace(enabled bool, tpiuProtocol TpuiPinProtocolType, portSize uint32,
+func (h *StLink) ConfigTrace(enabled bool, tpiuProtocol TpuiPinProtocolType, portSize uint32,
 	traceFreq *uint32, traceClkInFreq uint32, preScaler *uint16) error {
 
-	if enabled == true && ((h.version.flags&flagHasTrace == 0) || tpiuProtocol != TpuiPinProtocolAsyncUart) {
+	if enabled == true && (!h.version.flags.Get(flagHasTrace) || tpiuProtocol != TpuiPinProtocolAsyncUart) {
 		return errors.New("the attached ST-Link version does not support this trace mode")
 	}
 
@@ -415,7 +419,7 @@ func (h *StLinkHandle) ConfigTrace(enabled bool, tpiuProtocol TpuiPinProtocolTyp
 	return h.usbTraceEnable()
 }
 
-func (h *StLinkHandle) ReadMem(addr uint32, bitLength MemoryBlockSize, count uint32, buffer *bytes.Buffer) error {
+func (h *StLink) ReadMem(addr uint32, bitLength MemoryBlockSize, count uint32, buffer *bytes.Buffer) error {
 	var retErr error
 	var bytesRemaining uint32 = 0
 	var retries int = 0
@@ -425,9 +429,9 @@ func (h *StLinkHandle) ReadMem(addr uint32, bitLength MemoryBlockSize, count uin
 	count *= uint32(bitLength)
 
 	/* switch to 8 bit if stlink does not support 16 bit memory read */
-	if bitLength == Memory16BitBlock && ((h.version.flags & flagHasMem16Bit) == 0) {
+	if bitLength == Memory16BitBlock && (!h.version.flags.Get(flagHasMem16Bit)) {
 		bitLength = Memory8BitBlock
-		log.Debug("ST-Link does not support 16bit transfer")
+		logger.Debug("st-link does not support 16bit transfer")
 	}
 
 	for count > 0 {
@@ -461,7 +465,7 @@ func (h *StLinkHandle) ReadMem(addr uint32, bitLength MemoryBlockSize, count uin
 			if (addr & (uint32(bitLength) - 1)) > 0 {
 				var headBytes = uint32(bitLength) - (addr & (uint32(bitLength) - 1))
 
-				log.Debug("Read unaligned bytes")
+				logger.Debug("read unaligned bytes")
 
 				err := h.usbReadMem8(addr, uint16(headBytes), buffer)
 
@@ -484,7 +488,7 @@ func (h *StLinkHandle) ReadMem(addr uint32, bitLength MemoryBlockSize, count uin
 				count -= headBytes
 				bytesRemaining -= headBytes
 
-				log.Debugf("BufPos: %d, Addr: %08x, Count: %d, BytesRemain: %d", bufferPos, addr, count, bytesRemaining)
+				logger.Debugf("BufPos: %d, Addr: %08x, Count: %d, BytesRemain: %d", bufferPos, addr, count, bytesRemaining)
 			}
 
 			if (bytesRemaining & (uint32(bitLength) - 1)) > 0 {
@@ -520,7 +524,7 @@ func (h *StLinkHandle) ReadMem(addr uint32, bitLength MemoryBlockSize, count uin
 	return retErr
 }
 
-func (h *StLinkHandle) WriteMem(address uint32, bitLength MemoryBlockSize, count uint32, buffer []byte) error {
+func (h *StLink) WriteMem(address uint32, bitLength MemoryBlockSize, count uint32, buffer []byte) error {
 	var retError error
 	var bytesRemaining uint32
 	retries := 0
@@ -528,8 +532,8 @@ func (h *StLinkHandle) WriteMem(address uint32, bitLength MemoryBlockSize, count
 
 	count *= uint32(bitLength)
 
-	if bitLength == Memory16BitBlock && (h.version.flags&flagHasMem16Bit) == 0 {
-		log.Debug("Set 16bit memory read to 8bit")
+	if bitLength == Memory16BitBlock && (!h.version.flags.Get(flagHasMem16Bit)) {
+		logger.Debug("set 16bit memory read to 8bit")
 		bitLength = Memory8BitBlock
 	}
 
@@ -585,7 +589,7 @@ func (h *StLinkHandle) WriteMem(address uint32, bitLength MemoryBlockSize, count
 				count -= headBytes
 				bytesRemaining -= headBytes
 
-				log.Debugf("BufPos: %d, Addr: %08x, Count: %d, BytesRemain: %d", bufferPos, address, count, bytesRemaining)
+				logger.Debugf("BufPos: %d, Addr: %08x, Count: %d, BytesRemain: %d", bufferPos, address, count, bytesRemaining)
 			}
 
 			if (bytesRemaining & (uint32(bitLength) - 1)) > 0 {
@@ -602,7 +606,7 @@ func (h *StLinkHandle) WriteMem(address uint32, bitLength MemoryBlockSize, count
 		if retError != nil {
 			switch retError.(type) {
 			case gousb.TransferStatus:
-				log.Debug("Got usb transfer error state ", retError)
+				logger.Debug("got usb transfer error state ", retError)
 				var sleepDur time.Duration = 1 << retries
 				retries++
 
@@ -632,9 +636,9 @@ func (h *StLinkHandle) WriteMem(address uint32, bitLength MemoryBlockSize, count
 	return retError
 }
 
-func (h *StLinkHandle) PollTrace(buffer []byte, size *uint32) error {
+func (h *StLink) PollTrace(buffer []byte, size *uint32) error {
 
-	if h.trace.enabled == true && (h.version.flags&flagHasTrace) != 0 {
+	if h.trace.enabled == true && h.version.flags.Get(flagHasTrace) {
 		ctx := h.initTransfer(transferRxEndpoint)
 
 		ctx.cmdBuffer.WriteByte(cmdDebug)
@@ -663,6 +667,6 @@ func (h *StLinkHandle) PollTrace(buffer []byte, size *uint32) error {
 	return nil
 }
 
-func (h *StLinkHandle) Reset() {
-	h.usbDevice.Reset()
+func (h *StLink) Reset() {
+	h.libUsbDevice.Reset()
 }

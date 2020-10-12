@@ -31,7 +31,7 @@ func newUsbError(msg string, code usbErrorCode) error {
   Converts an STLINK status code held in the first byte of a response
   to an gostlink library error, logs any error/wait status as debug output.
 */
-func (h *StLinkHandle) usbErrorCheck(ctx* transferCtx) error {
+func (h *StLink) usbErrorCheck(ctx *transferCtx) error {
 
 	errorStatus := ctx.dataBuffer.Bytes()[0]
 
