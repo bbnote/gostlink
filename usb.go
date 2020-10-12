@@ -46,7 +46,7 @@ func CloseUSB() {
 func usbFindDevices(vids []gousb.ID, pids []gousb.ID) ([]*gousb.Device, error) {
 	devices, err := libUsbCtx.OpenDevices(func(desc *gousb.DeviceDesc) bool {
 		if idExists(vids, desc.Vendor) == true && idExists(pids, desc.Product) == true {
-			logger.Debugf("trying to open usb device [%04x:%04x] on bus %03d:%03d...", uint16(desc.Vendor), uint16(desc.Product), desc.Bus, desc.Address)
+			logger.Debugf("inspect usb device [%04x:%04x] on bus %03d:%03d...", uint16(desc.Vendor), uint16(desc.Product), desc.Bus, desc.Address)
 
 			return true
 		} else {
@@ -79,7 +79,7 @@ func usbWrite(endpoint *gousb.OutEndpoint, buffer []byte) (int, error) {
 	if err != nil {
 		return -1, err
 	} else {
-		logger.Tracef("%d Bytes -> EP%d", bytesWritten, endpoint.Number)
+		logger.Tracef("%d Bytes -> EP-%d", bytesWritten, endpoint.Desc.Number)
 		return bytesWritten, nil
 	}
 
@@ -97,7 +97,7 @@ func usbRead(endpoint *gousb.InEndpoint, buffer []byte) (int, error) {
 	if err != nil {
 		return -1, err
 	} else {
-		logger.Tracef("EP%d -> %d Bytes", endpoint.Number, bytesRead)
+		logger.Tracef("EP-%d -> %d Bytes", endpoint.Desc.Number, bytesRead)
 		return bytesRead, nil
 	}
 }

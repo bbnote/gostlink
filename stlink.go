@@ -122,8 +122,12 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLink, error) {
 			return nil, errors.New("could not identity exact stlink by given parameters. (Perhaps a serial no is missing?)")
 
 		} else if len(devices) == 1 {
-
 			handle.libUsbDevice = devices[0]
+
+			logger.Infof("Found st-link witch matching product and vendor id [%04x, %04x]",
+				uint16(handle.libUsbDevice.Desc.Product),
+				uint16(handle.libUsbDevice.Desc.Vendor))
+
 		} else {
 			for _, dev := range devices {
 				devSerialNo, _ := dev.SerialNumber()
@@ -190,7 +194,7 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLink, error) {
 		handle.traceEndpoint, errorTrace = handle.libUsbInterface.InEndpoint(usbTraceEndpointApi2v1)
 
 	default:
-		logger.Infof("could not determine pid of debugger %x. Assuming Link V2 api", uint16(handle.libUsbDevice.Desc.Product))
+		logger.Infof("unknown product id of debugger %x. Assuming Link V2 api", uint16(handle.libUsbDevice.Desc.Product))
 		handle.version.stlink = 2
 
 		handle.txEndpoint, errorTx = handle.libUsbInterface.OutEndpoint(usbTxEndpointNo)
@@ -271,6 +275,8 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLink, error) {
 			logger.Debug("set memory packet layout according to Cortex M3/M4")
 			handle.maxMemPacket = 1 << 12
 		}
+	} else {
+		logger.Error(errCode)
 	}
 
 	logger.Debugf("using TAR autoincrement: %d", handle.maxMemPacket)
@@ -316,8 +322,6 @@ func (h *StLink) GetTargetVoltage() (float32, error) {
 	if adcResults[0] > 0 {
 		targetVoltage = 2 * (float32(adcResults[1]) * (1.2 / float32(adcResults[0])))
 	}
-
-	logger.Infof("Voltage measured on target [%f V]", targetVoltage)
 
 	return targetVoltage, nil
 }

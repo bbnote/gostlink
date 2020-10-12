@@ -99,6 +99,8 @@ func (h *StLink) usbSetSwdClk(clkDivisor uint16) error {
 		return errors.New("cannot change swd clock speed on connected st link")
 	}
 
+	logger.Tracef("set SWD clk to %d", clkDivisor)
+
 	ctx := h.initTransfer(transferRxEndpoint)
 
 	ctx.cmdBuffer.WriteByte(cmdDebug)

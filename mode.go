@@ -88,7 +88,7 @@ func (h *StLink) usbInitMode(connectUnderReset bool, initialInterfaceSpeed uint3
 		return err
 	}
 
-	logger.Debugf("device usb mode before switching: %s (0x%02x)", usbModeToString(mode), mode)
+	logger.Tracef("device usb mode before switching: %s (0x%02x)", usbModeToString(mode), mode)
 
 	var stLinkMode StLinkMode
 
@@ -125,7 +125,7 @@ func (h *StLink) usbInitMode(connectUnderReset bool, initialInterfaceSpeed uint3
 		return err
 	}
 
-	logger.Debugf("device usb mode after mode exit: %s (0x%02x)", usbModeToString(mode), mode)
+	logger.Tracef("device usb mode after mode exit: %s (0x%02x)", usbModeToString(mode), mode)
 
 	/* we check the target voltage here as an aid to debugging connection problems.
 	 * the stlink requires the target Vdd to be connected for reliable debugging.
@@ -140,7 +140,7 @@ func (h *StLink) usbInitMode(connectUnderReset bool, initialInterfaceSpeed uint3
 			// attempt to continue as it is not a catastrophic failure
 		} else {
 			if voltage < 1.5 {
-				logger.Error("target voltage may be too low for reliable debugging")
+				logger.Warn("target voltage may be too low for reliable debugging")
 			}
 		}
 	}
@@ -148,7 +148,7 @@ func (h *StLink) usbInitMode(connectUnderReset bool, initialInterfaceSpeed uint3
 	stLinkMode = h.stMode
 
 	if stLinkMode == StLinkModeUnknown {
-		return errors.New("Selected mode (transport) not supported")
+		return errors.New("selected mode (transport) not supported")
 	}
 
 	if stLinkMode == StLinkModeDebugJtag {
@@ -177,13 +177,17 @@ func (h *StLink) usbInitMode(connectUnderReset bool, initialInterfaceSpeed uint3
 	//  Tested firmware STLINK v2 JTAG v29 API v2 SWIM v0 uses T_NRST pin by default
 	//  Tested firmware STLINK v2 JTAG v27 API v2 SWIM v6 uses T_NRST pin by default
 	//  after power on, SWIM_RST stays unchanged
+
 	if connectUnderReset && stLinkMode != StLinkModeDebugSwim {
+		logger.Trace("Assert RST line 1")
+
 		h.usbAssertSrst(0)
 		// do not check the return status here, we will
 		// proceed and enter the desired mode below
 		// and try asserting srst again.
 	}
 
+	logger.Tracef("Entering usb mode %d", stLinkMode)
 	err = h.usbModeEnter(stLinkMode)
 
 	if err != nil {
@@ -191,6 +195,7 @@ func (h *StLink) usbInitMode(connectUnderReset bool, initialInterfaceSpeed uint3
 	}
 
 	if connectUnderReset {
+		logger.Trace("Assert RST line 2")
 		err = h.usbAssertSrst(0)
 		if err != nil {
 			return err
@@ -203,7 +208,7 @@ func (h *StLink) usbInitMode(connectUnderReset bool, initialInterfaceSpeed uint3
 		return err
 	}
 
-	logger.Debugf("Device usb mode after mode enter: %s (0x%02x)", usbModeToString(mode), mode)
+	logger.Tracef("device usb mode after mode enter: %s (0x%02x)", usbModeToString(mode), mode)
 
 	return nil
 }
