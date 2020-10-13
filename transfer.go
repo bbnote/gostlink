@@ -7,7 +7,6 @@ package gostlink
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"time"
 )
 
@@ -46,11 +45,7 @@ func (h *StLink) usbTransferNoErrCheck(ctx *transferCtx, dataLength uint32) erro
 	}
 
 	if h.version.stlink == 1 {
-		err := h.usbTransferV1GetStatus(ctx)
-
-		if err != nil {
-			return err
-		}
+		return errors.New("st-link V1 api commands not supported")
 	}
 
 	return nil
@@ -96,55 +91,6 @@ func (h *StLink) usbTransferReadWrite(ctx *transferCtx, dataLength uint32) error
 		}
 
 		ctx.dataBuffer.Write(readBuffer)
-	}
-
-	return nil
-}
-
-func (h *StLink) usbTransferV1CreateCmd(ctx *transferCtx, cmdLength uint32) {
-	ctx.cmdBuffer.WriteByte('U')
-	ctx.cmdBuffer.WriteByte('S')
-	ctx.cmdBuffer.WriteByte('B')
-	ctx.cmdBuffer.WriteByte('C')
-
-	addU32ToBuffer(&ctx.cmdBuffer, 0, 32, 0)
-	addU32ToBuffer(&ctx.cmdBuffer, 0, 32, cmdLength)
-
-	/* cbw flags */
-	if ctx.direction == transferRxEndpoint {
-		ctx.cmdBuffer.WriteByte(usbEndpointIn)
-	} else {
-		ctx.cmdBuffer.WriteByte(usbEndpointOut)
-	}
-
-	ctx.cmdBuffer.WriteByte(0) /* lun */
-	ctx.cmdBuffer.WriteByte(0) /* cdb clength (is filled in at xfer) */
-}
-
-func (h *StLink) usbTransferV1GetStatus(ctx *transferCtx) error {
-	ctx.cmdBuffer.Truncate(0)
-
-	bytesRead, err := usbRead(h.rxEndpoint, ctx.cmdBuffer.Bytes())
-
-	if err != nil || bytesRead != 13 {
-		return errors.New("st-link V1 status read error")
-	}
-
-	t1 := buf_get_u32(ctx.cmdBuffer.Bytes(), 0, 32)
-
-	/* check for USBS */
-	if t1 != 0x53425355 {
-		return errors.New("st-link usbs check error")
-	}
-
-	/*
-	 * CSW status:
-	 * 0 success
-	 * 1 command failure
-	 * 2 phase error
-	 */
-	if ctx.cmdBuffer.Bytes()[12] != 0 {
-		return errors.New(fmt.Sprintf("got CSW status error %d", ctx.cmdBuffer.Bytes()[12]))
 	}
 
 	return nil

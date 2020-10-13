@@ -12,13 +12,11 @@ var (
 	logger *logrus.Logger = nil
 )
 
-const MaxLogLevel = logrus.DebugLevel
-
 func init() {
 	logger = logrus.New()
+	logger.SetLevel(logrus.InfoLevel)
 }
 
 func SetLogger(loggerInstance *logrus.Logger) {
-
 	logger = loggerInstance
 }
