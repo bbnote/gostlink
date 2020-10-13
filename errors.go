@@ -1,3 +1,7 @@
+// Copyright 2020 Sebastian Lehmann. All rights reserved.
+// Use of this source code is governed by a GNU-style
+// license that can be found in the LICENSE file.
+
 package gostlink
 
 import (
@@ -33,7 +37,7 @@ func newUsbError(msg string, code usbErrorCode) error {
 */
 func (h *StLink) usbErrorCheck(ctx *transferCtx) error {
 
-	errorStatus := ctx.dataBuffer.Bytes()[0]
+	errorStatus := ctx.DataBytes()[0]
 
 	if h.stMode == StLinkModeDebugSwim {
 		switch errorStatus {

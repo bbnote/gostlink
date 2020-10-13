@@ -95,12 +95,12 @@ func usbModeToString(mode byte) string {
 	}
 }
 
-type usbTransferEndpoint uint8
+type usbTransferDirection uint8
 
 const (
-	transferRxEndpoint    usbTransferEndpoint = 0
-	transferTxEndpoint                        = 1
-	transferTraceEndpoint                     = 2
+	transferIncoming usbTransferDirection = 0
+	transferOutgoing                      = 1
+	transferTrace                         = 2
 )
 
 const (
