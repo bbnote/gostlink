@@ -8,14 +8,13 @@ import (
 	"errors"
 
 	"github.com/boljen/go-bitmap"
-	log "github.com/sirupsen/logrus"
 )
 
 var (
 	openedAp = bitmap.New(debugAccessPortSelectionMaximum + 1)
 )
 
-func (h *StLink) usbOpenAp(apsel uint16) error {
+func (h *StLink) usbOpenAccessPort(apsel uint16) error {
 
 	/* nothing to do on old versions */
 	if !h.version.flags.Get(flagHasApInit) {
@@ -36,7 +35,7 @@ func (h *StLink) usbOpenAp(apsel uint16) error {
 		return err
 	}
 
-	log.Debugf("AP %d enabled", apsel)
+	logger.Debugf("Access port %d enabled", apsel)
 	openedAp.Set(int(apsel), true)
 	return nil
 }
@@ -46,18 +45,19 @@ func (h *StLink) usbInitAccessPort(apNum byte) error {
 		return errors.New("could not find access port command")
 	}
 
-	log.Debugf("init ap_num = %d", apNum)
+	logger.Debugf("initialized access port # %d", apNum)
 
-	ctx := h.initTransfer(transferRxEndpoint)
+	ctx := h.initTransfer(transferIncoming)
 
-	ctx.cmdBuffer.WriteByte(cmdDebug)
-	ctx.cmdBuffer.WriteByte(debugApiV2InitAccessPort)
-	ctx.cmdBuffer.WriteByte(apNum)
+	ctx.cmdBuf.WriteByte(cmdDebug)
+	ctx.cmdBuf.WriteByte(debugApiV2InitAccessPort)
+	ctx.cmdBuf.WriteByte(apNum)
 
 	retVal := h.usbTransferErrCheck(ctx, 2)
 
 	if retVal != nil {
-		return errors.New("could not init access port on device")
+		logger.Error("could not init access port over usb")
+		return retVal
 	} else {
 		return nil
 	}

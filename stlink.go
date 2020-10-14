@@ -2,11 +2,6 @@
 // Use of this source code is governed by a GNU-style
 // license that can be found in the LICENSE file.
 
-// this code is mainly inspired and based on the openocd project source code
-// for detailed information see
-
-// https://sourceforge.net/p/openocd/code
-
 package gostlink
 
 import (
@@ -45,10 +40,10 @@ type StLink struct {
 	libUsbConfig    *gousb.Config    // reference to device configuration
 	libUsbInterface *gousb.Interface // reference to currently used interface
 
-	rxEndpoint       *gousb.InEndpoint  // receive from device endpint
-	txEndpoint       *gousb.OutEndpoint // transmit to device endpoint
-	traceEndpoint    *gousb.InEndpoint  // endpoint from which trace messages are read from
-	transferEndpoint usbTransferEndpoint
+	rxEndpoint    *gousb.InEndpoint  // receive from device endpint
+	txEndpoint    *gousb.OutEndpoint // transmit to device endpoint
+	traceEndpoint *gousb.InEndpoint  // endpoint from which trace messages are read from
+	//transferEndpoint usbTransferEndpoint
 
 	vid gousb.ID // vendor id of device
 
@@ -209,7 +204,7 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLink, error) {
 		return nil, errors.New("could not get tx endpoint of device")
 	}
 
-	err = handle.usbGetVersion()
+	err = handle.useParseVersion()
 
 	if err != nil {
 		return nil, err
@@ -265,7 +260,7 @@ func NewStLink(config *StLinkInterfaceConfig) (*StLink, error) {
 	errCode := handle.usbReadMem32(cpuIdBaseRegister, 4, buffer)
 
 	if errCode == nil {
-		var cpuid uint32 = le_to_h_u32(buffer.Bytes())
+		var cpuid uint32 = convertToUint32(buffer.Bytes(), littleEndian)
 		var i uint32 = (cpuid >> 4) & 0xf
 
 		logger.Debugf("got cpu id [%08x]", cpuid)
@@ -303,9 +298,9 @@ func (h *StLink) GetTargetVoltage() (float32, error) {
 		return -1.0, errors.New("device does not support voltage measurement")
 	}
 
-	ctx := h.initTransfer(transferRxEndpoint)
+	ctx := h.initTransfer(transferIncoming)
 
-	ctx.cmdBuffer.WriteByte(cmdGetTargetVoltage)
+	ctx.cmdBuf.WriteByte(cmdGetTargetVoltage)
 
 	err := h.usbTransferNoErrCheck(ctx, 8)
 
@@ -314,8 +309,8 @@ func (h *StLink) GetTargetVoltage() (float32, error) {
 	}
 
 	/* convert result */
-	adcResults[0] = le_to_h_u32(ctx.dataBuffer.Bytes())
-	adcResults[1] = le_to_h_u32(ctx.dataBuffer.Bytes()[4:])
+	adcResults[0] = convertToUint32(ctx.DataBytes(), littleEndian)
+	adcResults[1] = convertToUint32(ctx.DataBytes()[4:], littleEndian)
 
 	var targetVoltage float32 = 0.0
 
@@ -334,17 +329,17 @@ func (h *StLink) GetIdCode() (uint32, error) {
 		return 0, nil
 	}
 
-	ctx := h.initTransfer(transferRxEndpoint)
+	ctx := h.initTransfer(transferIncoming)
 
-	ctx.cmdBuffer.WriteByte(cmdDebug)
+	ctx.cmdBuf.WriteByte(cmdDebug)
 
 	if h.version.jtagApi == jTagApiV1 {
-		ctx.cmdBuffer.WriteByte(debugReadCoreId)
+		ctx.cmdBuf.WriteByte(debugReadCoreId)
 
 		retVal = h.usbTransferNoErrCheck(ctx, 4)
 		offset = 0
 	} else {
-		ctx.cmdBuffer.WriteByte(debugApiV2ReadIdCodes)
+		ctx.cmdBuf.WriteByte(debugApiV2ReadIdCodes)
 
 		retVal = h.usbTransferErrCheck(ctx, 12)
 		offset = 4
@@ -354,7 +349,7 @@ func (h *StLink) GetIdCode() (uint32, error) {
 		return 0, retVal
 
 	} else {
-		idCode := le_to_h_u32(ctx.dataBuffer.Bytes()[offset:])
+		idCode := convertToUint32(ctx.DataBytes()[offset:], littleEndian)
 
 		return idCode, nil
 	}
@@ -458,18 +453,19 @@ func (h *StLink) ReadMem(addr uint32, bitLength MemoryBlockSize, count uint32, b
 		 */
 		if bitLength != Memory8BitBlock {
 			/* When in jtag mode the stlink uses the auto-increment functionality.
-			 	* However it expects us to pass the data correctly, this includes
-			 	* alignment and any page boundaries. We already do this as part of the
-			 	* adi_v5 implementation, but the stlink is a hla adapter and so this
-			 	* needs implementing manually.
-				 * currently this only affects jtag mode, according to ST they do single
-				 * access in SWD mode - but this may change and so we do it for both modes */
+			 * However it expects us to pass the data correctly, this includes
+			 * alignment and any page boundaries. We already do this as part of the
+			 * adi_v5 implementation, but the stlink is a hla adapter and so this
+			 * needs implementing manually.
+			 * currently this only affects jtag mode, according to ST they do single
+			 * access in SWD mode - but this may change and so we do it for both modes
+			 */
 
 			// we first need to check for any unaligned bytes
 			if (addr & (uint32(bitLength) - 1)) > 0 {
 				var headBytes = uint32(bitLength) - (addr & (uint32(bitLength) - 1))
 
-				logger.Debug("read unaligned bytes")
+				logger.Trace("read unaligned bytes")
 
 				err := h.usbReadMem8(addr, uint16(headBytes), buffer)
 
@@ -492,7 +488,7 @@ func (h *StLink) ReadMem(addr uint32, bitLength MemoryBlockSize, count uint32, b
 				count -= headBytes
 				bytesRemaining -= headBytes
 
-				logger.Debugf("BufPos: %d, Addr: %08x, Count: %d, BytesRemain: %d", bufferPos, addr, count, bytesRemaining)
+				logger.Tracef("BufPos: %d, Addr: %08x, Count: %d, BytesRemain: %d", bufferPos, addr, count, bytesRemaining)
 			}
 
 			if (bytesRemaining & (uint32(bitLength) - 1)) > 0 {
@@ -593,7 +589,7 @@ func (h *StLink) WriteMem(address uint32, bitLength MemoryBlockSize, count uint3
 				count -= headBytes
 				bytesRemaining -= headBytes
 
-				logger.Debugf("BufPos: %d, Addr: %08x, Count: %d, BytesRemain: %d", bufferPos, address, count, bytesRemaining)
+				logger.Tracef("BufPos: %d, Addr: %08x, Count: %d, BytesRemain: %d", bufferPos, address, count, bytesRemaining)
 			}
 
 			if (bytesRemaining & (uint32(bitLength) - 1)) > 0 {
@@ -610,7 +606,8 @@ func (h *StLink) WriteMem(address uint32, bitLength MemoryBlockSize, count uint3
 		if retError != nil {
 			switch retError.(type) {
 			case gousb.TransferStatus:
-				logger.Debug("got usb transfer error state ", retError)
+				logger.Error("got usb transfer error state ", retError)
+
 				var sleepDur time.Duration = 1 << retries
 				retries++
 
@@ -643,10 +640,10 @@ func (h *StLink) WriteMem(address uint32, bitLength MemoryBlockSize, count uint3
 func (h *StLink) PollTrace(buffer []byte, size *uint32) error {
 
 	if h.trace.enabled == true && h.version.flags.Get(flagHasTrace) {
-		ctx := h.initTransfer(transferRxEndpoint)
+		ctx := h.initTransfer(transferIncoming)
 
-		ctx.cmdBuffer.WriteByte(cmdDebug)
-		ctx.cmdBuffer.WriteByte(debugApiV2GetTraceNB)
+		ctx.cmdBuf.WriteByte(cmdDebug)
+		ctx.cmdBuf.WriteByte(debugApiV2GetTraceNB)
 
 		err := h.usbTransferNoErrCheck(ctx, 2)
 
@@ -654,7 +651,7 @@ func (h *StLink) PollTrace(buffer []byte, size *uint32) error {
 			return err
 		}
 
-		bytesAvailable := uint32(le_to_h_u16(ctx.dataBuffer.Bytes()))
+		bytesAvailable := uint32(ctx.dataBuf.ReadUint16LE())
 
 		if bytesAvailable < *size {
 			*size = bytesAvailable

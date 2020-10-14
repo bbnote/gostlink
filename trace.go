@@ -38,15 +38,13 @@ const tpuiAcprMaxSwoScaler = 0x1fff
 func (h *StLink) usbTraceDisable() error {
 
 	if !h.version.flags.Get(flagHasTrace) {
-		return errors.New("stlink does not support trace")
+		return errors.New("st-link does not support trace")
 	}
 
-	logger.Debug("disabling trace functionality")
+	ctx := h.initTransfer(transferIncoming)
 
-	ctx := h.initTransfer(transferRxEndpoint)
-
-	ctx.cmdBuffer.WriteByte(cmdDebug)
-	ctx.cmdBuffer.WriteByte(debugApiV2StopTraceRx)
+	ctx.cmdBuf.WriteByte(cmdDebug)
+	ctx.cmdBuf.WriteByte(debugApiV2StopTraceRx)
 
 	err := h.usbTransferErrCheck(ctx, 2)
 
@@ -61,13 +59,13 @@ func (h *StLink) usbTraceDisable() error {
 func (h *StLink) usbTraceEnable() error {
 
 	if h.version.flags.Get(flagHasTrace) {
-		ctx := h.initTransfer(transferRxEndpoint)
+		ctx := h.initTransfer(transferIncoming)
 
-		ctx.cmdBuffer.WriteByte(cmdDebug)
-		ctx.cmdBuffer.WriteByte(debugApiV2StartTraceRx)
+		ctx.cmdBuf.WriteByte(cmdDebug)
+		ctx.cmdBuf.WriteByte(debugApiV2StartTraceRx)
 
-		uint16ToLittleEndian(&ctx.cmdBuffer, traceSize)
-		uint32ToLittleEndian(&ctx.cmdBuffer, h.trace.sourceHz)
+		ctx.cmdBuf.WriteUint16LE(traceSize)
+		ctx.cmdBuf.WriteUint32LE(h.trace.sourceHz)
 
 		err := h.usbTransferErrCheck(ctx, 2)
 
@@ -77,10 +75,10 @@ func (h *StLink) usbTraceEnable() error {
 
 			return nil
 		} else {
-			return errors.New("Error during usb xfer ")
+			return errors.New("usb xfer error at enabling trace")
 		}
 	} else {
-		return errors.New("tracing not supported by this version")
+		return errors.New("tracing not supported by st-link")
 	}
 }
 
@@ -89,7 +87,7 @@ func (h *StLink) usbReadTrace(buffer []byte, size uint32) error {
 		return errors.New("trace is not supported by connected device")
 	}
 
-	bytesRead, err := usbRead(h.traceEndpoint, buffer)
+	bytesRead, err := usbRawRead(h.traceEndpoint, buffer)
 
 	if err != nil {
 		return err

@@ -123,22 +123,22 @@ func (h *StLink) UpdateRttChannels(readChannelNames bool) error {
 		for i := uint32(0); i < bufferAmount; i++ {
 			rttBuffer := &seggerRttChannel{}
 
-			rttBuffer.name = le_to_h_u32(ramBytes[controlBlockOffset:])
+			rttBuffer.name = convertToUint32(ramBytes[controlBlockOffset:], littleEndian)
 			controlBlockOffset += 4
 
-			rttBuffer.buffer = le_to_h_u32(ramBytes[controlBlockOffset:])
+			rttBuffer.buffer = convertToUint32(ramBytes[controlBlockOffset:], littleEndian)
 			controlBlockOffset += 4
 
-			rttBuffer.sizeOfBuffer = le_to_h_u32(ramBytes[controlBlockOffset:])
+			rttBuffer.sizeOfBuffer = convertToUint32(ramBytes[controlBlockOffset:], littleEndian)
 			controlBlockOffset += 4
 
-			rttBuffer.wrOff = le_to_h_u32(ramBytes[controlBlockOffset:])
+			rttBuffer.wrOff = convertToUint32(ramBytes[controlBlockOffset:], littleEndian)
 			controlBlockOffset += 4
 
-			rttBuffer.rdOff = le_to_h_u32(ramBytes[controlBlockOffset:])
+			rttBuffer.rdOff = convertToUint32(ramBytes[controlBlockOffset:], littleEndian)
 			controlBlockOffset += 4
 
-			rttBuffer.flags = le_to_h_u32(ramBytes[controlBlockOffset:])
+			rttBuffer.flags = convertToUint32(ramBytes[controlBlockOffset:], littleEndian)
 			controlBlockOffset += 4
 
 			if rttBuffer.name != 0 && readChannelNames == true {
@@ -254,8 +254,8 @@ func (h *StLink) readDataFromRttChannelBuffer(channelIdx uint32, ramBuffer []byt
 	if data.Len() > 0 {
 		addressRdOff := h.seggerRtt.ramStart + h.seggerRtt.offset + seggerRttControlBlockSize + channelIdx*seggerRttBufferSize + 16 // 20 bytes rdOff pos
 
-		wrBuffer := bytes.Buffer{}
-		uint32ToLittleEndian(&wrBuffer, RdOff)
+		wrBuffer := Buffer{}
+		wrBuffer.WriteUint32LE(RdOff)
 
 		err := h.WriteMem(addressRdOff, Memory32BitBlock, 1, wrBuffer.Bytes())
 
@@ -269,6 +269,6 @@ func (h *StLink) readDataFromRttChannelBuffer(channelIdx uint32, ramBuffer []byt
 
 func parseRttControlBlock(ramBuffer []byte, controlBlock *seggerRttControlBlock) {
 	copy(controlBlock.acId[:], ramBuffer) // is 16 bytes long
-	controlBlock.maxNumUpBuffers = le_to_h_u32(ramBuffer[len(controlBlock.acId):])
-	controlBlock.maxNumDownBuffers = le_to_h_u32(ramBuffer[len(controlBlock.acId)+4:])
+	controlBlock.maxNumUpBuffers = convertToUint32(ramBuffer[len(controlBlock.acId):], littleEndian)
+	controlBlock.maxNumDownBuffers = convertToUint32(ramBuffer[len(controlBlock.acId)+4:], littleEndian)
 }

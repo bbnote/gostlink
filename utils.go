@@ -66,27 +66,3 @@ func buf_get_u32(buffer []byte, first uint, num uint) uint32 {
 		return result
 	}
 }
-
-func be_to_h_u16(buffer []byte) uint16 {
-	return uint16(uint16(buffer[1]) | (uint16(buffer[0]) << 8))
-}
-
-func le_to_h_u16(buffer []byte) uint16 {
-	return uint16(uint16(buffer[0]) | (uint16(buffer[1]) << 8))
-}
-
-func le_to_h_u32(buffer []byte) uint32 {
-	return uint32(buffer[0]) | uint32(buffer[1])<<8 | uint32(buffer[2])<<16 | uint32(buffer[3])<<24
-}
-
-func uint32ToLittleEndian(buffer *bytes.Buffer, value uint32) {
-	buffer.WriteByte(byte(value >> 0))
-	buffer.WriteByte(byte(value >> 8))
-	buffer.WriteByte(byte(value >> 16))
-	buffer.WriteByte(byte(value >> 24))
-}
-
-func uint16ToLittleEndian(buffer *bytes.Buffer, value uint16) {
-	buffer.WriteByte(byte(value >> 0))
-	buffer.WriteByte(byte(value >> 8))
-}

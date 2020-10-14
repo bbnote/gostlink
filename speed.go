@@ -2,11 +2,6 @@
 // Use of this source code is governed by a GNU-style
 // license that can be found in the LICENSE file.
 
-// this code is mainly inspired and based on the openocd project source code
-// for detailed information see
-
-// https://sourceforge.net/p/openocd/code
-
 package gostlink
 
 import (
@@ -101,16 +96,14 @@ func (h *StLink) usbSetSwdClk(clkDivisor uint16) error {
 
 	logger.Tracef("set SWD clk to %d", clkDivisor)
 
-	ctx := h.initTransfer(transferRxEndpoint)
+	ctx := h.initTransfer(transferIncoming)
 
-	ctx.cmdBuffer.WriteByte(cmdDebug)
-	ctx.cmdBuffer.WriteByte(flagHasSwdSetFreq)
+	ctx.cmdBuf.WriteByte(cmdDebug)
+	ctx.cmdBuf.WriteByte(flagHasSwdSetFreq)
 
-	uint16ToLittleEndian(&ctx.cmdBuffer, clkDivisor)
+	ctx.cmdBuf.WriteUint16LE(clkDivisor)
 
-	err := h.usbCmdAllowRetry(ctx, 2)
-
-	return err
+	return h.usbCmdAllowRetry(ctx, 2)
 }
 
 func (h *StLink) usbGetComFreq(isJtag bool, smap *[]speedMap) error {
@@ -119,27 +112,27 @@ func (h *StLink) usbGetComFreq(isJtag bool, smap *[]speedMap) error {
 		return errors.New("get com freq not supported except of api v3")
 	}
 
-	ctx := h.initTransfer(transferRxEndpoint)
+	ctx := h.initTransfer(transferIncoming)
 
-	ctx.cmdBuffer.WriteByte(cmdDebug)
-	ctx.cmdBuffer.WriteByte(debugApiV3GetComFreq)
+	ctx.cmdBuf.WriteByte(cmdDebug)
+	ctx.cmdBuf.WriteByte(debugApiV3GetComFreq)
 
 	if isJtag {
-		ctx.cmdBuffer.WriteByte(1)
+		ctx.cmdBuf.WriteByte(1)
 	} else {
-		ctx.cmdBuffer.WriteByte(0)
+		ctx.cmdBuf.WriteByte(0)
 	}
 
 	err := h.usbTransferErrCheck(ctx, 52)
 
-	size := uint32(ctx.dataBuffer.Bytes()[8])
+	size := uint32(ctx.DataBytes()[8])
 
 	if size > v3MaxFreqNb {
 		size = v3MaxFreqNb
 	}
 
 	for i := uint32(0); i < size; i++ {
-		(*smap)[i].speed = le_to_h_u32(ctx.dataBuffer.Bytes()[12+4*i:])
+		(*smap)[i].speed = convertToUint32(ctx.DataBytes()[12+4*i:], littleEndian)
 		(*smap)[i].speedDivisor = i
 	}
 
@@ -157,23 +150,21 @@ func (h *StLink) usbSetComFreq(isJtag bool, frequency uint32) error {
 		return errors.New("set com freq not supported except of api v3")
 	}
 
-	ctx := h.initTransfer(transferRxEndpoint)
+	ctx := h.initTransfer(transferIncoming)
 
-	ctx.cmdBuffer.WriteByte(cmdDebug)
-	ctx.cmdBuffer.WriteByte(debugApiV3SetComFreq)
+	ctx.cmdBuf.WriteByte(cmdDebug)
+	ctx.cmdBuf.WriteByte(debugApiV3SetComFreq)
 
 	if isJtag {
-		ctx.cmdBuffer.WriteByte(1)
+		ctx.cmdBuf.WriteByte(1)
 	} else {
-		ctx.cmdBuffer.WriteByte(0)
+		ctx.cmdBuf.WriteByte(0)
 	}
-	ctx.cmdBuffer.WriteByte(0)
 
-	uint32ToLittleEndian(&ctx.cmdBuffer, frequency)
+	ctx.cmdBuf.WriteByte(0)
+	ctx.cmdBuf.WriteUint32LE(frequency)
 
-	err := h.usbTransferErrCheck(ctx, 8)
-
-	return err
+	return h.usbTransferErrCheck(ctx, 8)
 }
 
 func matchSpeedMap(smap []speedMap, kHz uint32, query bool) (int, error) {
